@@ -4,6 +4,7 @@ const VolunteerSchema = new mongoose.Schema({
   email: { type: String, unique: true },
   passwordHash: String,
   role: { type: String, enum: ['volunteer', 'admin'], default: 'volunteer' },
+  verified: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 export default mongoose.model('Volunteer', VolunteerSchema);

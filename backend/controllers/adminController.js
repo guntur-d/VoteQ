@@ -1,4 +1,5 @@
 import Submission from '../models/Submission.js';
+import Volunteer from '../models/Volunteer.js';
 
 const adminController = {
   async summary(req, reply) {
@@ -15,6 +16,15 @@ const adminController = {
   },
   async flag(req, reply) {
     await Submission.findByIdAndUpdate(req.params.id, { flagged: true });
+    reply.send({ success: true });
+  },
+  async unverifiedUsers(req, reply) {
+    const users = await Volunteer.find({ verified: false });
+    reply.send(users);
+  },
+  async verifyUser(req, reply) {
+    const { id } = req.params;
+    await Volunteer.findByIdAndUpdate(id, { verified: true });
     reply.send({ success: true });
   }
 };

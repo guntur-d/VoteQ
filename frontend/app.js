@@ -23,7 +23,6 @@ m.route(document.body, '/app/login', {
     render: () => m(SubmissionForm)
   },
   '/app/admin': {
-    onmatch: () => isAuthenticated() ? undefined : m.route.set('/app/login'),
     render: () => m(AdminPanel)
   }
 });
