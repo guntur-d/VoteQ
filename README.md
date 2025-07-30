@@ -61,6 +61,28 @@ A voting report application built with Fastify, MongoDB, and Mithril.js.
     npm start
     ```
 
+## Deployment to Render
+
+This project is configured for easy deployment to [Render](https://render.com/).
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+
+### How It Works
+
+This repository contains a `render.yaml` file that uses "Infrastructure as Code" to tell Render how to set up the service.
+
+1.  Click the "Deploy to Render" button above or create a **New Blueprint Instance** from the Render dashboard.
+2.  Connect your GitHub repository.
+3.  Render will automatically detect and use the `render.yaml` file.
+4.  In the environment variables section, you **must** add a value for `MONGO_URI`. Your `JWT_SECRET` will be generated for you automatically.
+5.  Click **Apply** and wait for the deployment to complete.
+
+Your application will be live! Render will also automatically redeploy your application whenever you push new changes to your main branch.
+
+---
+
+<br>
+
 ---
 
 <br>
@@ -129,3 +151,21 @@ Aplikasi laporan pemungutan suara yang dibangun dengan Fastify, MongoDB, dan Mit
     ```sh
     npm start
     ```
+
+## Deployment ke Render
+
+Proyek ini telah dikonfigurasi untuk kemudahan deployment ke Render.
+
+[!Deploy to Render](https://render.com/deploy)
+
+### Cara Kerja
+
+Repositori ini berisi file `render.yaml` yang menggunakan "Infrastructure as Code" untuk memberitahu Render cara menyiapkan layanan.
+
+1.  Klik tombol "Deploy to Render" di atas atau buat **New Blueprint Instance** dari dasbor Render.
+2.  Hubungkan repositori GitHub Anda.
+3.  Render akan secara otomatis mendeteksi dan menggunakan file `render.yaml`.
+4.  Di bagian variabel lingkungan (environment variables), Anda **harus** menambahkan nilai untuk `MONGO_URI`. `JWT_SECRET` Anda akan dibuat secara otomatis.
+5.  Klik **Apply** dan tunggu hingga proses deployment selesai.
+
+Aplikasi Anda akan online! Render juga akan secara otomatis melakukan deploy ulang setiap kali Anda mengirim perubahan baru ke branch utama Anda.
