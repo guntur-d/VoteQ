@@ -1,10 +1,21 @@
-# VoteQ
-
-A voting report application built with Fastify, MongoDB, and Mithril.js.
+<div align="center">
+  <!-- You can add a logo here if you have one -->
+  <!-- <img src="path/to/your/logo.png" alt="VoteQ Logo" width="150"/> -->
+  <h1>VoteQ</h1>
+  <p>A real-time voting report application built with Fastify, MongoDB, and Mithril.js.</p>
+  
+  <p>
+    <img alt="Node.js Version" src="https://img.shields.io/badge/node-v18.x-blue.svg">
+    <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg">
+    <a href="https://render.com/deploy?repo=https://github.com/guntur-d/VoteQ">
+      <img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render">
+    </a>
+  </p>
+</div>
 
 ---
 
-## Features
+## ✨ Features
 
 - **Fast & Modern Backend**: Built with [Fastify](https://www.fastify.io/), a high-performance Node.js web framework.
 - **User Authentication**: Secure user login and session management using JSON Web Tokens (`@fastify/jwt`) and password hashing (`bcryptjs`).
@@ -14,7 +25,7 @@ A voting report application built with Fastify, MongoDB, and Mithril.js.
 - **Image Processing**: Utilizes `sharp` for efficient image handling, likely for candidate photos or user avatars.
 - **Environment Configuration**: Manages environment variables securely with `dotenv`.
 
-## Technology Stack
+## 🛠️ Technology Stack
 
 - **Backend**: Node.js, Fastify
 - **Frontend**: Mithril.js
@@ -27,7 +38,7 @@ A voting report application built with Fastify, MongoDB, and Mithril.js.
   - `json2csv`: Report generation
   - `sharp`: Image processing
 
-## Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
 
@@ -49,8 +60,18 @@ A voting report application built with Fastify, MongoDB, and Mithril.js.
     ```
 
 3.  **Set up environment variables:**
-    Create a `.env` file in the root directory and add the necessary variables (e.g., `MONGO_URI`, `JWT_SECRET`).
+    Copy the `.env.example` file to a new file named `.env` and fill in your details.
+    ```sh
+    cp .env.example .env
+    ```
 
+    Your `.env` file should look like this:
+    ```
+    MONGO_URI="mongodb://localhost:27017"
+    DB_NAME="voteq"
+    JWT_SECRET="your-super-secret-key"
+    PORT=3000
+    ```
 4.  **Run the application:**
     For development with auto-reloading:
     ```sh
@@ -105,7 +126,7 @@ Aplikasi laporan pemungutan suara yang dibangun dengan Fastify, MongoDB, dan Mit
 - **Pemrosesan Gambar**: Memanfaatkan `sharp` untuk penanganan gambar yang efisien, kemungkinan untuk foto kandidat atau avatar pengguna.
 - **Konfigurasi Lingkungan**: Mengelola variabel lingkungan secara aman dengan `dotenv`.
 
-## Tumpukan Teknologi
+## 🛠️ Tumpukan Teknologi
 
 - **Backend**: Node.js, Fastify
 - **Frontend**: Mithril.js
@@ -118,7 +139,7 @@ Aplikasi laporan pemungutan suara yang dibangun dengan Fastify, MongoDB, dan Mit
   - `json2csv`: Pembuatan laporan
   - `sharp`: Pemrosesan gambar
 
-## Memulai
+## 🚀 Memulai
 
 ### Prasyarat
 
@@ -140,8 +161,18 @@ Aplikasi laporan pemungutan suara yang dibangun dengan Fastify, MongoDB, dan Mit
     ```
 
 3.  **Atur variabel lingkungan:**
-    Buat file `.env` di direktori root dan tambahkan variabel yang diperlukan (misalnya, `MONGO_URI`, `JWT_SECRET`).
+    Salin file `.env.example` ke file baru bernama `.env` dan isi detail Anda.
+    ```sh
+    cp .env.example .env
+    ```
 
+    File `.env` Anda akan terlihat seperti ini:
+    ```
+    MONGO_URI="mongodb://localhost:27017"
+    DB_NAME="voteq"
+    JWT_SECRET="kunci-rahasia-anda-yang-sangat-aman"
+    PORT=3000
+    ```
 4.  **Jalankan aplikasi:**
     Untuk pengembangan dengan auto-reloading:
     ```sh
@@ -152,20 +183,26 @@ Aplikasi laporan pemungutan suara yang dibangun dengan Fastify, MongoDB, dan Mit
     npm start
     ```
 
-## Deployment ke Render
+## ☁️ Deployment ke Render
 
 Proyek ini telah dikonfigurasi untuk kemudahan deployment ke Render.
 
-[!Deploy to Render](https://render.com/deploy)
-
 ### Cara Kerja
 
-Repositori ini berisi file `render.yaml` yang menggunakan "Infrastructure as Code" untuk memberitahu Render cara menyiapkan layanan.
+Repositori ini berisi file `render.yaml` yang menggunakan "Infrastructure as Code" untuk memberitahu Render cara menyiapkan layanan secara otomatis.
 
-1.  Klik tombol "Deploy to Render" di atas atau buat **New Blueprint Instance** dari dasbor Render.
+1.  Klik tombol **Deploy to Render** di bagian atas README ini atau buat **New Blueprint Instance** dari dasbor Render.
 2.  Hubungkan repositori GitHub Anda.
 3.  Render akan secara otomatis mendeteksi dan menggunakan file `render.yaml`.
-4.  Di bagian variabel lingkungan (environment variables), Anda **harus** menambahkan nilai untuk `MONGO_URI`. `JWT_SECRET` Anda akan dibuat secara otomatis.
+4.  Di bagian variabel lingkungan (environment variables), Anda **harus** menambahkan nilai untuk `MONGO_URI` dan `DB_NAME`. `JWT_SECRET` Anda akan dibuat secara otomatis oleh Render.
 5.  Klik **Apply** dan tunggu hingga proses deployment selesai.
 
 Aplikasi Anda akan online! Render juga akan secara otomatis melakukan deploy ulang setiap kali Anda mengirim perubahan baru ke branch utama Anda.
+
+## 🤝 Berkontribusi
+
+Kontribusi, isu, dan permintaan fitur sangat kami harapkan! Jangan ragu untuk memeriksa halaman isu.
+
+## 📜 Lisensi
+
+Proyek ini berlisensi MIT.

@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "VoteQ - A voting report application with Fastify, MongoDB, and Mithril.js",
   "type": "module",
-  "main": "backend/server.js",
+  "main": "api/index.js",
   "scripts": {
     "start": "node backend/server.js",
-    "dev": "nodemon backend/server.js",
+    "dev": "vercel dev",
     "build": "echo 'No build process needed'",
     "test": "echo 'No tests specified'"
   },

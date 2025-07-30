@@ -13,3 +13,6 @@ yarn-error.log*
 dist/
 build/
 wilayah_data/
+
+# Vercel
+.vercel
