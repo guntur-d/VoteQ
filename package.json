@@ -1,7 +1,7 @@
 {
   "name": "voteq",
   "version": "1.0.0",
-  "description": "VoteQ - A voting application with Fastify, MongoDB, and Mithril.js",
+  "description": "VoteQ - A voting report application with Fastify, MongoDB, and Mithril.js",
   "type": "module",
   "main": "backend/server.js",
   "scripts": {
