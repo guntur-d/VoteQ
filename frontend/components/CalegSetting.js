@@ -41,7 +41,9 @@ export default {
       m.redraw();
     });
   },
-  view() {
+  view(vnode) {
+    const hasSubmissions = vnode.attrs.hasSubmissions || false;
+
     if (this.caleg && !this.showEdit) {
       return m('section', [
         m('h3', i18n.calegSetting || 'Caleg'),
@@ -49,8 +51,11 @@ export default {
           m('strong', i18n.currentCaleg || 'Caleg Saat Ini:'), ' ', this.caleg
         ]),
         m('button', {
-          onclick: () => { this.showEdit = true; }
-        }, i18n.editCaleg || 'Ubah Caleg')
+          onclick: () => { this.showEdit = true; },
+          disabled: hasSubmissions
+        }, i18n.editCaleg || 'Ubah Caleg'),
+        hasSubmissions && m('p', { style: { fontSize: '0.8rem', fontStyle: 'italic', marginTop: '0.5rem', color: 'var(--pico-color-red-500)' } },
+          'Pengaturan tidak dapat diubah karena sudah ada data suara yang masuk.')
       ]);
     }
     // Remove secret prompt logic, just show input form below

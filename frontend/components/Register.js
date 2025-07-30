@@ -1,5 +1,4 @@
 
-// import m from 'mithril'; // Use global 'm' from CDN instead
 import { i18n } from '../i18n.js';
 
 export default {
@@ -7,22 +6,30 @@ export default {
   email: '',
   password: '',
   error: '',
+  loading: false,
+  async register() {
+    this.loading = true;
+    this.error = '';
+    try {
+      await m.request({
+        method: 'POST',
+        url: '/api/auth/register',
+        body: { name: this.name, email: this.email, password: this.password },
+      });
+      // Redirect to login with a success message
+      m.route.set('/app/login', { state: { message: 'Pendaftaran berhasil. Silakan masuk.' } });
+    } catch (err) {
+      this.error = err.response?.error || i18n.registrationFailed;
+    } finally {
+      this.loading = false;
+      m.redraw();
+    }
+  },
   view() {
     return m('main.container', [
       m('h2', i18n.register),
       m('form', {
-        onsubmit: e => {
-          e.preventDefault();
-          m.request({
-            method: 'POST',
-            url: '/api/auth/register',
-            body: { name: this.name, email: this.email, password: this.password },
-          }).then(() => {
-            m.route.set('/app/login');
-          }).catch(err => {
-            this.error = err.response?.error || i18n.registrationFailed;
-          });
-        }
+        onsubmit: e => { e.preventDefault(); this.register(); }
       }, [
         m('input[type=text][placeholder=' + i18n.name + '][required]', {
           oninput: e => this.name = e.target.value,
@@ -36,11 +43,11 @@ export default {
           oninput: e => this.password = e.target.value,
           value: this.password
         }),
-        m('button[type=submit]', i18n.register),
-        m('button[type=button]', {
-          onclick: () => m.route.set('/app/login')
-        }, i18n.login),
-        this.error && m('p.error', this.error)
+        m('.grid',
+          m('button[type=submit]', { disabled: this.loading, 'aria-busy': this.loading }, this.loading ? 'Mendaftar...' : i18n.register),
+          m('button[type=button].secondary', { disabled: this.loading, onclick: () => m.route.set('/app/login') }, i18n.login)
+        ),
+        this.error && m('p', { style: { color: 'var(--pico-color-red-500)' } }, this.error)
       ])
     ]);
   }

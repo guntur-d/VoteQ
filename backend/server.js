@@ -13,10 +13,13 @@ import authRoutes from './routes/auth.js';
 import submissionRoutes from './routes/submissions.js';
 import adminRoutes from './routes/admin.js';
 
+
 import exportRoutes from './routes/export.js';
 import provinsiRoutes from './routes/provinsi.js';
 import kabupatenKotaRoutes from './routes/kabupatenkota.js';
 import calegRoutes from './routes/caleg.js';
+import kecamatanRoutes from './routes/kecamatan.js';
+import kelurahanDesaRoutes from './routes/kelurahan_desa.js';
 
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -36,9 +39,12 @@ await app.register(authRoutes, { prefix: '/api/auth' });
 await app.register(submissionRoutes, { prefix: '/api/submissions' });
 await app.register(adminRoutes, { prefix: '/api/admin' });
 await app.register(exportRoutes, { prefix: '/api/export' });
+
 await app.register(provinsiRoutes, { prefix: '/api/provinsi' });
 await app.register(kabupatenKotaRoutes, { prefix: '/api/kabupatenkota' });
 await app.register(calegRoutes, { prefix: '/api/caleg' });
+await app.register(kecamatanRoutes, { prefix: '/api/kecamatan' });
+await app.register(kelurahanDesaRoutes, { prefix: '/api/kelurahan_desa' });
 
 app.listen({ port: config.port, host: '0.0.0.0' }, err => {
   if (err) throw err;

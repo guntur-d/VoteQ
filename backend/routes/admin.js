@@ -15,6 +15,7 @@ export default async function routes(fastify) {
   // Area setting endpoints (JWT + admin only)
   fastify.get('/area-setting', { preHandler: [auth, adminOnly] }, areaSettingController.get);
   fastify.post('/area-setting', { preHandler: [auth, adminOnly] }, areaSettingController.save);
+  fastify.get('/summary/by-kecamatan', { preHandler: [auth, adminOnly], handler: adminController.summaryByKecamatan });
   fastify.get('/submissions', { preHandler: [auth, adminOnly] }, adminController.list);
   fastify.get('/unverified-users', { preHandler: [auth, adminOnly] }, adminController.unverifiedUsers);
   fastify.post('/verify-user/:id', { preHandler: [auth, adminOnly] }, adminController.verifyUser);
