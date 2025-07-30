@@ -7,8 +7,8 @@
   <p>
     <img alt="Node.js Version" src="https://img.shields.io/badge/node-v18.x-blue.svg">
     <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg">
-    <a href="https://render.com/deploy?repo=https://github.com/guntur-d/VoteQ">
-      <img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render">
+    <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fguntur-d%2FVoteQ">
+      <img src="https://vercel.com/button" alt="Deploy with Vercel"/>
     </a>
   </p>
 </div>
@@ -82,11 +82,9 @@
     npm start
     ```
 
-## Deployment to Render
 
-This project is configured for easy deployment to [Render](https://render.com/).
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+ 
 
 ### How It Works
 
@@ -183,19 +181,17 @@ Aplikasi laporan pemungutan suara yang dibangun dengan Fastify, MongoDB, dan Mit
     npm start
     ```
 
-## ☁️ Deployment ke Render
+## ☁️ Deployment ke Vercel
 
-Proyek ini telah dikonfigurasi untuk kemudahan deployment ke Render.
+Proyek ini siap untuk di-deploy ke [Vercel](https://vercel.com/).
 
 ### Cara Kerja
 
-Repositori ini berisi file `render.yaml` yang menggunakan "Infrastructure as Code" untuk memberitahu Render cara menyiapkan layanan secara otomatis.
-
-1.  Klik tombol **Deploy to Render** di bagian atas README ini atau buat **New Blueprint Instance** dari dasbor Render.
-2.  Hubungkan repositori GitHub Anda.
-3.  Render akan secara otomatis mendeteksi dan menggunakan file `render.yaml`.
-4.  Di bagian variabel lingkungan (environment variables), Anda **harus** menambahkan nilai untuk `MONGO_URI` dan `DB_NAME`. `JWT_SECRET` Anda akan dibuat secara otomatis oleh Render.
-5.  Klik **Apply** dan tunggu hingga proses deployment selesai.
+1.  Klik tombol "Deploy with Vercel" di bagian atas README ini.
+2.  Anda akan diarahkan ke Vercel. Hubungkan akun GitHub Anda untuk mengkloning repositori ini.
+3.  Vercel akan secara otomatis mendeteksi bahwa ini adalah proyek Node.js.
+4.  Pada bagian variabel lingkungan (environment variables), Anda **harus** menambahkan nilai untuk `MONGO_URI`, `DB_NAME`, dan `JWT_SECRET`.
+5.  Klik **Deploy** dan tunggu hingga proses deployment selesai.
 
 Aplikasi Anda akan online! Render juga akan secara otomatis melakukan deploy ulang setiap kali Anda mengirim perubahan baru ke branch utama Anda.
 
