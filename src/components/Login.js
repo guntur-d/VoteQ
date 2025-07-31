@@ -1,57 +1,65 @@
+// src/components/Login.js
 import { i18n } from '../i18n.js';
 
 export default {
   email: '',
   password: '',
-  error: '',
-  message: '',
   loading: false,
-  oninit() {
-    // Check for a message passed from another route, e.g., registration
-    const routeState = m.route.param('state');
-    if (routeState && routeState.message) {
-      this.message = routeState.message;
-    }
-  },
-  async login() {
+  error: '',
+  login() {
     this.loading = true;
     this.error = '';
-    this.message = ''; // Clear message on new attempt
-    try {
-      const res = await m.request({
-        method: 'POST',
-        url: '/api/auth/login',
-        body: { email: this.email, password: this.password },
-      });
-      localStorage.setItem('token', res.token);
+    const body = {
+      email: this.email,
+      password: this.password
+    };
+    console.log('[FRONTEND LOGIN] Sending body:', body);
+    m.request({
+      method: 'POST',
+      url: '/api/auth/login',
+      body,
+      headers: { 'Content-Type': 'application/json' }
+    }).then(response => {
+      localStorage.setItem('token', response.token);
+      localStorage.setItem('user', JSON.stringify(response.user));
       m.route.set('/app/dashboard');
-    } catch (err) {
-      this.error = err.response?.error || i18n.loginFailed;
-    } finally {
+    }).catch(error => {
+      this.error = error.error || i18n.loginError;
       this.loading = false;
       m.redraw();
-    }
+    });
   },
   view() {
     return m('main.container', [
-      m('h2', i18n.login),
+      m('h1', i18n.login),
       m('form', {
-        onsubmit: e => { e.preventDefault(); this.login(); }
+        onsubmit: e => {
+          e.preventDefault();
+          this.login();
+        }
       }, [
-        this.message && m('p', { style: { color: 'var(--pico-color-green-500)' } }, this.message),
-        m('input[type=email][placeholder=' + i18n.email + '][required]', {
-          oninput: e => this.email = e.target.value,
-          value: this.email
+        m('label', { for: 'email' }, i18n.email || 'Email'),
+        m('input', {
+          id: 'email',
+          type: 'email',
+          value: this.email,
+          oninput: e => { this.email = e.target.value; },
+          required: true
         }),
-        m('input[type=password][placeholder=' + i18n.password + '][required]', {
-          oninput: e => this.password = e.target.value,
-          value: this.password
+        m('label', { for: 'password' }, i18n.password),
+        m('input', {
+          id: 'password',
+          type: 'password',
+          value: this.password,
+          oninput: e => { this.password = e.target.value; },
+          required: true
         }),
-        m('.grid',
-          m('button[type=submit]', { disabled: this.loading, 'aria-busy': this.loading }, this.loading ? 'Masuk...' : i18n.login),
-          m('button[type=button].secondary', { disabled: this.loading, onclick: () => m.route.set('/app/register') }, i18n.register)
-        ),
-        this.error && m('p', { style: { color: 'var(--pico-color-red-500)' } }, this.error)
+        m('button[type=submit]', { disabled: this.loading }, i18n.login),
+        this.error && m('div.error', this.error)
+      ]),
+      m('p', [
+        'Belum punya akun? ',
+        m('a', { href: '#!/app/register' }, i18n.register)
       ])
     ]);
   }

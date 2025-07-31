@@ -8,7 +8,9 @@ export default {
   loading: false,
   error: '',
   oninit() {
-    m.request({ method: 'GET', url: '/api/caleg' })
+    const token = localStorage.getItem('token');
+    const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+    m.request({ method: 'GET', url: '/api/caleg', headers: authHeader })
       .then(data => {
         if (data && data.name) {
           this.caleg = data.name;

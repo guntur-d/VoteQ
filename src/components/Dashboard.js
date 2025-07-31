@@ -45,12 +45,15 @@ export default {
         this.calegName = calegData.name;
       }
 
-      if (this.area && this.area.kabupatenKota && this.area.provinsi) {
-        // Fetch kecamatan for this kabupaten and provinsi
+      if (this.area && this.area.kabupatenKota && this.area.provinsi && this.calegName) {
+        // Fetch kecamatan for this kabupaten and provinsi, only if calegName is set
         this.kecamatanList = await apiRequest({
           method: 'GET',
           url: `/api/kecamatan?kabupatenCode=${this.area.kabupatenKota}&provinsiCode=${this.area.provinsi}`,
         });
+      } else {
+        // Prevent loading kecamatan if area setting or calegName is not set
+        this.kecamatanList = [];
       }
     } catch (e) {
       this.error = e.response?.error || 'Gagal memuat data dasbor.';
@@ -64,6 +67,10 @@ export default {
   },
 
   async selectKecamatan(kecamatan) {
+    if (!this.calegName) {
+      // Prevent selecting kecamatan if calegName is not set
+      return;
+    }
     this.selectedKecamatan = kecamatan;
     this.desaList = [];
     this.loadingDesa = true;
@@ -132,7 +139,7 @@ export default {
         backgroundColor: 'var(--pico-primary-background)',
         borderLeft: '4px solid var(--pico-primary)'
       }
-    }, m('p', { style: { margin: 0, textAlign: 'center', color:"white" } }, [
+    }, m('p', { style: { margin: 0, textAlign: 'center', color: "white" } }, [
       'Anda mengumpulkan suara untuk Caleg:',
       m('br'),
       m('strong', { style: { fontSize: '1.2rem' } }, this.calegName)
@@ -140,6 +147,10 @@ export default {
   },
 
   view() {
+    // Get user from localStorage to check role
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const isAdmin = user.role === 'admin';
+
     if (this.loading) {
       return m('main.container', m('p', i18n.loading));
     }
@@ -148,6 +159,7 @@ export default {
       return m('main.container', [
         m('h2', i18n.dashboard),
         m('p.error', this.error),
+        isAdmin && m('button', { onclick: () => m.route.set('/app/admin') }, 'Ke Halaman Admin'),
         m('button', { onclick: logout }, i18n.logout)
       ]);
     }
@@ -156,6 +168,7 @@ export default {
       return m('main.container', [
         m('h2', i18n.dashboard),
         m('p', 'Area belum diatur oleh admin.'),
+        isAdmin && m('button', { onclick: () => m.route.set('/app/admin') }, 'Ke Halaman Admin'),
         m('button', { onclick: logout }, i18n.logout)
       ]);
     }
@@ -226,10 +239,11 @@ export default {
         this.loadingDesa
           ? m('p', i18n.loading)
           : m('.grid', { style: { gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))' } }, this.desaList.map(d =>
-              m('article', {
-                onclick: () => this.selectDesa(d), style: cardStyle },
-                m('h3', { style: cardHeaderStyle }, d.name))
-            )
+            m('article', {
+              onclick: () => this.selectDesa(d), style: cardStyle
+            },
+              m('h3', { style: cardHeaderStyle }, d.name))
+          )
           ),
         this.error && m('p.error', this.error),
         m('footer', { style: { paddingTop: 'var(--spacing)' } },
@@ -240,19 +254,25 @@ export default {
       ]);
     }
 
-    // Show kecamatan cards
+    // Show kecamatan cards, but disable selection if calegName is not set
     return m('main.container', [
       m('h2', i18n.dashboard),
       this.renderCalegInfoBox(),
       m('h3', 'Pilih Kecamatan'),
+      !this.calegName && m('p', { style: { color: 'var(--pico-color-red-500)', fontWeight: 500, marginBottom: '1rem' } }, 'Nama caleg belum diatur. Silakan hubungi admin.'),
       m('.grid', { style: { gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))' } }, this.kecamatanList.map(k =>
-          m('article', {
-            onclick: () => this.selectKecamatan(k), style: cardStyle },
-            m('h3', { style: cardHeaderStyle }, k.name))
-        )
+        m('article', {
+          onclick: this.calegName ? () => this.selectKecamatan(k) : null,
+          style: Object.assign({}, cardStyle, !this.calegName ? { opacity: 0.5, pointerEvents: 'none', cursor: 'not-allowed' } : {})
+        },
+          m('h3', { style: cardHeaderStyle }, k.name))
+      )
       ),
       m('footer', { style: { paddingTop: 'var(--spacing)' } },
-        m('button', { class: 'contrast', onclick: logout }, i18n.logout)
+        [
+          isAdmin && m('button', { style: { marginRight: '1rem' },onclick: () => m.route.set('/app/admin') }, 'Ke Halaman Admin'), 
+          m('button', {  class: 'contrast', onclick: logout }, i18n.logout),
+        ]
       )
     ]);
   }

@@ -9,9 +9,8 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const user = requireAdmin(req, res);
     if (!user) return;
-    
     try {
-      const setting = await AreaSetting.findOne({ admin: user.id });
+      const setting = await AreaSetting.findOne();
       if (!setting) {
         return res.status(404).json({ error: 'Area setting not found' });
       }
@@ -22,21 +21,14 @@ export default async function handler(req, res) {
   } else if (req.method === 'POST') {
     const user = requireAdmin(req, res);
     if (!user) return;
-    
     try {
-      const { provinsi, kabupatenKota } = req.body;
-      
-      if (!provinsi || !kabupatenKota) {
-        return res.status(400).json({ error: 'Provinsi and kabupatenKota are required' });
+      const { provinsi, kabupatenKota, admin } = req.body;
+      if (!provinsi || !kabupatenKota || !admin) {
+        return res.status(400).json({ error: 'Provinsi, kabupatenKota, and admin are required' });
       }
-      
-      // Upsert area setting
-      const setting = await AreaSetting.findOneAndUpdate(
-        { admin: user.id },
-        { provinsi, kabupatenKota },
-        { upsert: true, new: true }
-      );
-      
+      // Overwrite or create single area setting with admin info
+      await AreaSetting.deleteMany({});
+      const setting = await AreaSetting.create({ provinsi, kabupatenKota, admin });
       res.status(200).json(setting);
     } catch (err) {
       res.status(500).json({ error: 'Failed to save area setting' });

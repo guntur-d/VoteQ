@@ -8,6 +8,9 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       const { provinsiCode } = req.query;
+    //  console.log('Fetching kabupaten/kota for provinsiCode:', provinsiCode);
+   //  console.log(typeof provinsiCode)
+    //  console.log('Request query:', req.query);
       if (!provinsiCode) {
         return res.status(400).json({ error: 'provinsiCode is required' });
       }

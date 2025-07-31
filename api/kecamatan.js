@@ -8,6 +8,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       const { kabupatenCode, provinsiCode } = req.query;
+      console.log('Fetching kecamatan for kabupatenCode:', kabupatenCode, 'provinsiCode:', provinsiCode); 
       if (!kabupatenCode || !provinsiCode) {
         return res.status(400).json({ error: 'kabupatenCode and provinsiCode are required' });
       }

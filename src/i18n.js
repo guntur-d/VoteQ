@@ -1,32 +1,61 @@
-// Simple Indonesian translation dictionary
+// Indonesian language support
 export const i18n = {
+  // Auth
   login: 'Masuk',
   register: 'Daftar',
-  email: 'Email',
-  password: 'Kata Sandi',
-  name: 'Nama',
-  dashboard: 'Dasbor',
-  newSubmission: 'Entri Baru',
   logout: 'Keluar',
-  submitElectionData: 'Kirim Data Pemilu',
-  outcome: 'Hasil',
-  votes: 'Suara',
-  tpsNumber: 'Nomor TPS',
-  village: 'Desa',
+  phoneNumber: 'Nomor HP',
+  password: 'Kata Sandi',
+  fullName: 'Nama Lengkap',
+  
+  // Navigation
+  dashboard: 'Dashboard',
+  submit: 'Input Data',
+  admin: 'Admin Panel',
+  
+  // Forms
+  save: 'Simpan',
+  cancel: 'Batal',
+  edit: 'Ubah',
+  delete: 'Hapus',
+  back: 'Kembali',
+  
+  // Area Setting
+  areaSetting: 'Pengaturan Area',
+  currentArea: 'Area Saat Ini',
+  editArea: 'Ubah Area',
+  province: 'Provinsi',
+  kabupatenKota: 'Kabupaten/Kota',
+  selectProvince: 'Pilih Provinsi',
+  selectKabupaten: 'Pilih Kabupaten/Kota',
+  
+  // Caleg Setting
+  calegSetting: 'Pengaturan Caleg',
+  calegName: 'Nama Caleg',
+  currentCaleg: 'Caleg Saat Ini',
+  editCaleg: 'Ubah Caleg',
+  
+  // Submission
+  tps: 'TPS',
+  village: 'Desa/Kelurahan',
   district: 'Kecamatan',
-  photo: 'Foto',
-  submit: 'Kirim',
-  adminPanel: 'Panel Admin',
+  totalVotes: 'Total Suara',
+  calegVotes: 'Suara Caleg',
+  photo: 'Foto C1',
+  location: 'Lokasi',
+  
+  // Messages
+  saveError: 'Gagal menyimpan',
+  saveSuccess: 'Berhasil disimpan',
+  loginError: 'Login gagal',
+  registerSuccess: 'Pendaftaran berhasil',
+  loading: 'Memuat...',
+  
+  // Admin
+  unverifiedUsers: 'Pengguna Belum Terverifikasi',
+  verify: 'Verifikasi',
+  submissions: 'Data Masuk',
   approve: 'Setujui',
   flag: 'Tandai',
-  backToDashboard: 'Kembali ke Dasbor',
-  registrationFailed: 'Pendaftaran gagal',
-  loginFailed: 'Gagal masuk',
-  submissionFailed: 'Gagal mengirim',
-  photoRequired: 'Foto wajib diunggah',
-  imageTooLarge: 'Ukuran gambar terlalu besar',
-  forbidden: 'Akses ditolak',
-  unauthorized: 'Tidak diizinkan',
-  summary: 'Ringkasan',
-  loading: 'Memuat...'
+  export: 'Ekspor CSV'
 };
