@@ -28,15 +28,13 @@ export default {
   currentPage: 1,
   itemsPerPage: 20, // You can adjust this value
   totalPages: 1,
-  // Granular loading states for each section
+  // Granular loading states
   loading: {
     initial: true,
     users: false,
     submissions: false,
     summary: false
   },
-  loadingUsers: false,
-  loadingSubmissions: false,
   error: '',
   isMapModalOpen: false,
   mapModalUrl: '',
@@ -63,22 +61,22 @@ export default {
     this.checkAdminAccess();
   },
     
-  checkAdminAccess() {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      m.route.set('/app/login');
-      return;
-    }
-        
-    // Verify token and admin role
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (user.role !== 'admin') {
-      m.route.set('/app/dashboard');
-      return;
-    }
-        
-    this.loadDashboardData();
-  },
+checkAdminAccess() {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    m.route.set('/app/login');
+    return;
+  }
+
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  if (!user || user.role !== 'admin') {
+    m.route.set('/app/dashboard');
+    return;
+  }
+
+  // Optional: Add token expiration check here if JWT has exp claim
+  this.loadDashboardData();
+},
     
   async loadDashboardData() {
     this.loading.initial = true;
@@ -98,8 +96,12 @@ export default {
       
       this.totalPages = Math.ceil(this.allSubmissions.length / this.itemsPerPage);
       this.calculateVoteSummary(this.allSubmissions);
-
-    } finally {
+  } catch (err) {
+  this.error = 'Gagal memuat data dashboard.';
+  console.error('Error loading initial dashboard data:', err);
+  if (err.response) console.error('Response:', err.response);
+  if (err.message) console.error('Message:', err.message);
+} finally {
       this.loading.initial = false;
       m.redraw();
     }
@@ -136,43 +138,38 @@ export default {
   },
 
   // New method to load area data (kecamatan and desa names)
-  async loadAreaData() {
-    try {
-      // Get area setting first to know which kabupaten we're working with
-      const areaSetting = await m.request({
-        method: 'GET',
-        url: '/api/admin/area-setting',
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
-      });
-            
-      if (areaSetting && areaSetting.kabupatenKota) {
-        try {
-          const [kecamatanList, desaList] = await Promise.all([
-            m.request({
-              method: 'GET',
-              url: `/api/kecamatan?kabupatenCode=${areaSetting.kabupatenKota}&provinsiCode=${areaSetting.provinsi}`
-            }),
-            m.request({
-              method: 'GET',
-              url: `/api/kelurahan_desa?kabupatenCode=${areaSetting.kabupatenKota}&provinsiCode=${areaSetting.provinsi}`
-            })
-          ]);
-          return {
-            kecamatanList: kecamatanList || [],
-            desaList: desaList || []
-          };
-                    
-          console.log('Loaded area data:', this.areaData);
-        } catch (apiErr) {
-          console.warn('Area API not available, using fallback names:', apiErr);
-        }
+async loadAreaData() {
+  try {
+    const areaSetting = await m.request({
+      method: 'GET',
+      url: '/api/admin/area-setting',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    });
+
+    if (areaSetting && areaSetting.kabupatenKota) {
+      try {
+        const [kecamatanList, desaList] = await Promise.all([
+          m.request({
+            method: 'GET',
+            url: `/api/kecamatan?kabupatenCode=${areaSetting.kabupatenKota}&provinsiCode=${areaSetting.provinsi}`
+          }),
+          m.request({
+            method: 'GET',
+            url: `/api/kelurahan_desa?kabupatenCode=${areaSetting.kabupatenKota}&provinsiCode=${areaSetting.provinsi}`
+          })
+        ]);
+        return { kecamatanList, desaList };
+      } catch (apiErr) {
+        console.warn('Failed to load kecamatan/desa:', apiErr);
+        // Return empty lists instead of failing entirely
+        return { kecamatanList: [], desaList: [] };
       }
-    } catch (err) {
-      console.error('Error loading area setting:', err);
     }
-    // Return empty object on failure so Promise.all doesn't break
-    return { kecamatanList: [], desaList: [] };
-  },
+  } catch (err) {
+    console.error('Error loading area setting:', err);
+  }
+  return { kecamatanList: [], desaList: [] };
+},
 
   loadUnverifiedUsers() {
     return m.request({
@@ -434,8 +431,8 @@ export default {
           class: 'outline secondary',
           style: { margin: 0, padding: '0.25rem 0.75rem' },
           onclick: () => this.refreshUsers(),
-          'aria-busy': this.loading.users ? 'true' : 'false'
-        }, this.loading.users ? 'Memuat...' : '🔄 Refresh')
+          'aria-busy': this.loading.users
+        }, this.loading.users ? '' : '🔄 Refresh')
       ]),
       this.unverifiedUsers.length === 0 
         ? m('p', 'Tidak ada pengguna yang perlu diverifikasi')
@@ -464,12 +461,12 @@ export default {
     return m('section', [
       m('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' } }, [
         m('h4', { style: { margin: 0 } }, 'Submission Terbaru'),
-        m('button', {
+        m('button', { 
           class: 'outline secondary',
           style: { margin: 0, padding: '0.25rem 0.75rem' },
-          onclick: () => this.refreshSubmissionsAndSummary(),
-          'aria-busy': this.loading.submissions ? 'true' : 'false'
-        }, this.loading.submissions ? 'Memuat...' : '🔄 Refresh')
+          onclick: () => this.refreshSubmissionsAndSummary(), 
+          'aria-busy': this.loading.submissions
+        }, this.loading.submissions ? '' : '🔄 Refresh')
       ]),
       this.allSubmissions.length === 0
         ? m('p', 'Belum ada submission')
@@ -571,12 +568,7 @@ export default {
     m.redraw();
   },
 
-  // Add method to refresh submissions and summary after edit
-  async refreshSubmissionsAndSummary() {
-    await this.loadSubmissions();
-    this.calculateVoteSummary(this.allSubmissions);
-    m.redraw();
-  },
+ 
 
   closeEditModal() {
     this.isEditModalOpen = false;
@@ -735,8 +727,8 @@ export default {
           class: 'outline secondary',
           style: { margin: 0, padding: '0.25rem 0.75rem' },
           onclick: () => this.refreshSubmissionsAndSummary(),
-          'aria-busy': this.loading.summary ? 'true' : 'false'
-        }, this.loading.summary ? 'Memuat...' : '🔄 Refresh')
+          'aria-busy': this.loading.summary
+        }, this.loading.summary ? '' : '🔄 Refresh')
       ]),
       m('div.grid', [
         m('div', [
