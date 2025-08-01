@@ -29,6 +29,10 @@ export default {
   loadingSubmissions: false,
   userSubmissions: [],
   error: '',
+  isModalOpen: false,
+  modalImageUrl: '',
+  isEditModalOpen: false,
+  editingSubmissionId: null,
 
   async oninit() {
     this.loading = true;
@@ -100,17 +104,35 @@ export default {
   },
 
   async fetchUserSubmissions(desaCode) {
+    console.log('fetchUserSubmissions called with desaCode:', desaCode);
+    console.log('selectedKecamatan:', this.selectedKecamatan);
+    console.log('selectedDesa:', this.selectedDesa);
+    
     this.loadingSubmissions = true;
     this.userSubmissions = [];
     m.redraw();
     try {
-      this.userSubmissions = await apiRequest({
+      // Try both filtering approaches - by names and by codes
+      // The backend only needs the kelurahanDesaCode for this query.
+      const url = `/api/submissions/mine?kelurahanDesaCode=${desaCode}`;
+      console.log('Fetching from URL:', url);
+      
+      const response = await apiRequest({
         method: 'GET',
-        url: `/api/submissions/mine?kelurahanDesaCode=${desaCode}`
+        url: url
       });
+      
+      console.log('Backend response:', response);
+      console.log('Response type:', typeof response);
+      console.log('Response length:', Array.isArray(response) ? response.length : 'Not an array');
+      
+      this.userSubmissions = response || [];
+      console.log('userSubmissions set to:', this.userSubmissions);
     } catch (e) {
       // Non-critical error, maybe just log it or show a small message
       console.error("Could not fetch user's submissions", e);
+      console.error("Error details:", e.response);
+      this.userSubmissions = [];
     } finally {
       this.loadingSubmissions = false;
       m.redraw();
@@ -127,6 +149,64 @@ export default {
   backToDesaList() {
     this.userSubmissions = [];
     this.selectedDesa = null;
+  },
+
+  openPhotoModal(submissionId) {
+    this.isModalOpen = true;
+    this.modalImageUrl = `/api/submissions/photo/${submissionId}`;
+  },
+
+  closePhotoModal() {
+    this.isModalOpen = false;
+    this.modalImageUrl = '';
+  },
+
+  renderPhotoModal() {
+    if (!this.isModalOpen) return null;
+    return m('dialog', { open: true }, [
+      m('article', [
+        m('header', 
+          m('a.close', { 
+            href: '#', 'aria-label': 'Close', 
+            onclick: (e) => { e.preventDefault(); this.closePhotoModal(); } 
+          })
+        ),
+        m('img', { src: this.modalImageUrl, alt: 'Full-size submission photo', style: { maxWidth: '100%' } }),
+      ])
+    ]);
+  },
+
+  openEditModal(submissionId) {
+    this.editingSubmissionId = submissionId;
+    this.isEditModalOpen = true;
+  },
+
+  closeEditModal() {
+    this.isEditModalOpen = false;
+    this.editingSubmissionId = null;
+    m.redraw();
+  },
+
+  renderEditModal() {
+    if (!this.isEditModalOpen) return null;
+
+    return m('dialog', { open: true }, [
+      m('article', [
+        m('header',
+          m('a.close', {
+            href: '#', 'aria-label': 'Close',
+            onclick: (e) => { e.preventDefault(); this.closeEditModal(); }
+          })
+        ),
+        m(SubmissionForm, {
+          id: this.editingSubmissionId,
+          onsuccess: () => {
+            this.closeEditModal();
+            this.fetchUserSubmissions(this.selectedDesa.code);
+          }
+        })
+      ])
+    ]);
   },
 
   renderCalegInfoBox() {
@@ -191,7 +271,17 @@ export default {
               m('tbody', this.userSubmissions.map(s => m('tr', [
                 m('td', s.tpsNumber),
                 m('td', s.votes),
-                m('td', s.hasPhoto ? '✅' : '❌'),
+                m('td', s.hasPhoto 
+                  ? m('img', { 
+                      src: `/api/submissions/photo/${s._id}`, 
+                      style: { maxHeight: '40px', maxWidth: '40px', display: 'block', cursor: 'pointer' },
+                      alt: 'Bukti Foto',
+                      onclick: () => this.openPhotoModal(s._id),
+                      onerror: (e) => {
+                        e.target.style.display = 'none';
+                        e.target.parentNode.appendChild(document.createTextNode('❌'));
+                      }
+                    }) : '❌'),
                 m('td', s.hasLocation ? '✅' : '❌'),
                 m('td', m('button', {
                   class: 'outline secondary',
@@ -199,7 +289,7 @@ export default {
                     margin: 0, padding: '0.25rem 0.75rem', fontSize: '0.8rem',
                     display: 'flex', alignItems: 'center', justifyContent: 'center'
                   },
-                  onclick: () => m.route.set(`/app/submit/${s._id}`), title: 'Edit'
+                  onclick: () => this.openEditModal(s._id), title: 'Edit'
                 }, '✏️'))
               ])))
             ])
@@ -217,16 +307,21 @@ export default {
             kecamatanCode: this.selectedKecamatan.code,
             kelurahanDesaCode: this.selectedDesa.code
           },
-          hideFields: ['village', 'district'],
           onsuccess: () => {
-            this.fetchUserSubmissions(this.selectedDesa.code);
+            console.log('SubmissionForm success callback called');
+            console.log('About to fetch submissions for desa code:', this.selectedDesa.code);
+            // Add a small delay to ensure data is committed to database
+            setTimeout(() => {
+              this.fetchUserSubmissions(this.selectedDesa.code);
+            }, 500);
           }
         }),
         m('footer', { style: { paddingTop: 'var(--spacing)' } },
           m('.grid',
             m('button', { class: 'secondary', onclick: () => this.backToDesaList() }, 'Kembali ke Daftar Desa'),
-            m('button', { class: 'contrast', onclick: logout }, i18n.logout)
-          ))
+            m('button', { class: 'contrast', onclick: logout }, i18n.logout),
+          ), this.renderEditModal()),
+        this.renderPhotoModal()
       ]);
     }
 

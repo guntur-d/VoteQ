@@ -1,117 +1,100 @@
-// /api/submissions/index.js - Submissions API
+// api/submissions/index.js
+import jwt from 'jsonwebtoken';
+import sharp from 'sharp';
 import dbConnect from '../../lib/db.js';
 import Submission from '../../lib/models/Submission.js';
-import { requireAuth } from '../../lib/auth.js';
+import Volunteer from '../../lib/models/Volunteer.js';
 
 export default async function handler(req, res) {
   await dbConnect();
-  
+
   if (req.method === 'POST') {
-    const user = requireAuth(req, res);
-    if (!user) return;
-
-    // Parse JSON body if not already parsed
-    if (!req.body) {
-      let data = '';
-      await new Promise((resolve, reject) => {
-        req.on('data', chunk => data += chunk);
-        req.on('end', resolve);
-        req.on('error', reject);
-      });
-      if (!data) {
-        console.error('[SUBMISSION][POST] No body data received');
-        return res.status(400).json({ error: 'No body data received' });
-      }
-      try {
-        req.body = JSON.parse(data);
-      } catch (e) {
-        console.error('[SUBMISSION][POST] Failed to parse JSON body:', e, 'Raw:', data);
-        return res.status(400).json({ error: 'Invalid JSON body' });
-      }
-    }
-
     try {
-      console.log('[SUBMISSION][POST] req.body:', req.body);
-      const { votes, tpsNumber, village, district, photoBase64, photoMime, lat, lng, provinsiCode, kabupatenKotaCode, kecamatanCode, kelurahanDesaCode } = req.body;
-
-      if (!tpsNumber || !village || !district || votes === undefined) {
-        console.error('[SUBMISSION][POST] Missing required fields:', req.body);
-        return res.status(400).json({ error: 'All required fields must be provided' });
+      // 1. Authenticate the user from the token
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized: No token provided' });
+      }
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      const user = await Volunteer.findById(decoded.id).lean();
+      if (!user) {
+        return res.status(403).json({ error: 'Forbidden: User not found' });
       }
 
-      let buffer = null;
-      if (photoBase64) {
-        const sharp = (await import('sharp')).default;
-        buffer = await sharp(Buffer.from(photoBase64, 'base64'))
+      const {
+        photoBase64,
+        photoContentType,
+        latitude,
+        longitude,
+        ...otherData
+      } = req.body;
+
+      // 2. Validate essential data from the body
+      if (!photoBase64 || !photoContentType) {
+        return res.status(400).json({ error: 'Photo data is missing.' });
+      }
+
+      // 3. Compress the photo using sharp
+      let photoBuffer = await sharp(Buffer.from(photoBase64, 'base64'))
+        .resize({ width: 1024, withoutEnlargement: true })
+        .jpeg({ quality: 70 })
+        .toBuffer();
+
+      // Optional: further compression if needed
+      if (photoBuffer.length > 200 * 1024) { // 200KB limit
+        photoBuffer = await sharp(Buffer.from(photoBase64, 'base64'))
           .resize({ width: 1024, withoutEnlargement: true })
-          .jpeg({ quality: 70 })
+          .jpeg({ quality: 40 })
           .toBuffer();
-        if (buffer.length > 200 * 1024) {
-          buffer = await sharp(Buffer.from(photoBase64, 'base64'))
-            .resize({ width: 1024, withoutEnlargement: true })
-            .jpeg({ quality: 40 })
-            .toBuffer();
-          if (buffer.length > 200 * 1024) {
-            return res.status(400).json({ error: 'Image too large, even after compression' });
-          }
+        if (photoBuffer.length > 200 * 1024) {
+          return res.status(400).json({ error: 'Image too large, even after compression' });
         }
       }
 
-      // Check for unique tpsNumber in this kelurahanDesaCode
-      if (tpsNumber && kelurahanDesaCode) {
-        const exists = await Submission.findOne({ tpsNumber, kelurahanDesaCode });
-        if (exists) {
-          return res.status(400).json({ error: 'TPS number already exists for this desa. Please use a unique TPS.' });
-        }
-      }
-
+      // 4. Prepare the complete submission document
       const submissionData = {
-        volunteerId: user.id,
-        votes: Number(votes) || 0,
-        photo: buffer,
-        photoMime,
-        tpsNumber,
-        village,
-        district,
-        provinsiCode,
-        kabupatenKotaCode,
-        kecamatanCode,
-        kelurahanDesaCode
+        ...otherData,
+        volunteer: user._id,
+        photo: photoBuffer,
+        photoMime: photoContentType,
+        status: 'pending', // Default status
       };
 
-      if (lat && lng) {
+      // 5. Add location data if provided
+      if (latitude && longitude) {
         submissionData.location = {
           type: 'Point',
-          coordinates: [parseFloat(lng), parseFloat(lat)]
+          coordinates: [parseFloat(longitude), parseFloat(latitude)], // [longitude, latitude]
         };
+      } else {
+        // If location is strictly required by your schema, you might want to error out.
+        // For now, we'll just not include it if missing.
+        // But your schema has it as required, so this will fail validation if not present.
+        return res.status(400).json({ error: 'GPS location is required.' });
       }
 
+      // 6. Create and save the new submission
       const submission = new Submission(submissionData);
       await submission.save();
-      res.status(201).json({ message: 'Submission created successfully', id: submission._id });
-    } catch (err) {
-      console.error('[SUBMISSION][POST] Error saving submission:', err);
-      res.status(500).json({ error: 'Failed to create submission', details: err.message });
-    }
-  } else if (req.method === 'GET') {
-    const user = requireAuth(req, res);
-    if (!user) return;
-    
-    try {
-      let submissions;
-      if (user.role === 'admin') {
-        // Admin can see all submissions
-        submissions = await Submission.find({}).populate('volunteer', 'fullName phoneNumber').sort({ createdAt: -1 });
-      } else {
-        // Regular users see only their submissions
-        submissions = await Submission.find({ volunteer: user.id }).sort({ createdAt: -1 });
+
+      res.status(201).json({ success: true, data: submission });
+
+    } catch (error) {
+      console.error('[SUBMISSION][POST] Error saving submission:', error);
+      // Mongoose validation error
+      if (error.name === 'ValidationError') {
+        return res.status(400).json({ error: 'Validation failed', details: error.errors });
       }
-      
-      res.status(200).json(submissions);
-    } catch (err) {
-      res.status(500).json({ error: 'Failed to fetch submissions' });
+      // MongoDB unique index violation (duplicate key)
+      if (error.code === 11000) {
+        return res.status(409).json({ error: 'TPS sudah ada, silakan gunakan form edit untuk mengubah data' });
+      }
+      res.status(500).json({ error: 'Server error while creating submission.' });
     }
   } else {
-    res.status(405).json({ error: 'Method not allowed' });
+    res.setHeader('Allow', ['POST']);
+    res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 }

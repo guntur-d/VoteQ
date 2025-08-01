@@ -6,9 +6,46 @@ import CalegSetting from './CalegSetting.js';
 export default {
   currentView: 'dashboard',
   unverifiedUsers: [],
-  submissions: [],
-  loading: false,
+  allSubmissions: [], // Holds all submissions for summary and filtering
+  voteSummary: {
+    byKabupaten: {},
+    byKecamatan: {},
+    byDesa: {}
+  },
+  // Add filter state
+  filters: {
+    selectedKabupaten: 'all',
+    selectedKecamatan: 'all',
+    selectedDesa: 'all'
+  },
+  availableOptions: {
+    kabupaten: [],
+    kecamatan: [],
+    desa: []
+  },
+  // Pagination state
+  currentPage: 1,
+  itemsPerPage: 20, // You can adjust this value
+  totalPages: 1,
+  // Granular loading states
+  loadingInitial: true,
+  loadingUsers: false,
+  loadingSubmissions: false,
   error: '',
+  isMapModalOpen: false,
+  mapModalUrl: '',
+  // New state for summary table and details modal
+  summaryFilterLevel: 'all', // 'all', 'kecamatan', 'desa'
+  summaryFilterKecamatan: 'all', // kecamatan name for desa filtering
+  isDetailsModalOpen: false,
+  detailsModalTitle: '',
+  submissionsForModal: [],
+  
+  // Add area data for displaying names instead of codes
+  areaData: {
+    kecamatanList: [],
+    desaList: []
+  },
   
   oninit() {
     this.checkAdminAccess();
@@ -28,98 +65,629 @@ export default {
       return;
     }
     
-    this.loadDashboardData();
+    this.loadInitialData();
   },
   
-  loadDashboardData() {
-    this.loading = true;
-    Promise.all([
-      this.loadUnverifiedUsers(),
-      this.loadSubmissions()
-    ]).finally(() => {
-      this.loading = false;
+  async loadInitialData() {
+    this.loadingInitial = true;
+    this.error = '';
+    m.redraw();
+    try {
+      const [users, submissions, areaData] = await Promise.all([
+        this.loadUnverifiedUsers(),
+        this.loadSubmissions(),
+        this.loadAreaData()
+      ]);
+
+      this.unverifiedUsers = users;
+      this.allSubmissions = submissions;
+      this.areaData = areaData;
+      
+      this.totalPages = Math.ceil(this.allSubmissions.length / this.itemsPerPage);
+      this.calculateVoteSummary(this.allSubmissions);
+
+    } catch (err) {
+      this.error = 'Gagal memuat data dashboard.';
+      console.error('Error loading initial dashboard data:', err);
+    } finally {
+      this.loadingInitial = false;
       m.redraw();
-    });
+    }
   },
-  
+
+  async refreshUsers() {
+    this.loadingUsers = true;
+    m.redraw();
+    try {
+      this.unverifiedUsers = await this.loadUnverifiedUsers();
+    } catch (err) {
+      this.error = 'Gagal memuat pengguna belum terverifikasi.';
+    } finally {
+      this.loadingUsers = false;
+      m.redraw();
+    }
+  },
+
+  async refreshSubmissionsAndSummary() {
+    this.loadingSubmissions = true;
+    m.redraw();
+    try {
+      this.allSubmissions = await this.loadSubmissions();
+      this.totalPages = Math.ceil(this.allSubmissions.length / this.itemsPerPage);
+      this.calculateVoteSummary(this.allSubmissions);
+    } catch (err) {
+      this.error = 'Gagal memuat data submission.';
+    } finally {
+      this.loadingSubmissions = false;
+      m.redraw();
+    }
+  },
+
+  // New method to load area data (kecamatan and desa names)
+  async loadAreaData() {
+    try {
+      // Get area setting first to know which kabupaten we're working with
+      const areaSetting = await m.request({
+        method: 'GET',
+        url: '/api/admin/area-setting',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      });
+      
+      if (areaSetting && areaSetting.kabupatenKota) {
+        try {
+          const [kecamatanList, desaList] = await Promise.all([
+            m.request({
+              method: 'GET',
+              url: `/api/kecamatan?kabupatenCode=${areaSetting.kabupatenKota}&provinsiCode=${areaSetting.provinsi}`
+            }),
+            m.request({
+              method: 'GET',
+              url: `/api/kelurahan_desa?kabupatenCode=${areaSetting.kabupatenKota}&provinsiCode=${areaSetting.provinsi}`
+            })
+          ]);
+          return {
+            kecamatanList: kecamatanList || [],
+            desaList: desaList || []
+          };
+          
+          console.log('Loaded area data:', this.areaData);
+        } catch (apiErr) {
+          console.warn('Area API not available, using fallback names:', apiErr);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading area setting:', err);
+    }
+    // Return empty object on failure so Promise.all doesn't break
+    return { kecamatanList: [], desaList: [] };
+  },
+
   loadUnverifiedUsers() {
     return m.request({
       method: 'GET',
       url: '/api/admin/unverified-users',
       headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
-    }).then(users => {
-      this.unverifiedUsers = users;
-    }).catch(err => {
-      this.error = 'Failed to load unverified users';
     });
   },
   
   loadSubmissions() {
+    // Fetch all submissions for admin
     return m.request({
       method: 'GET',
       url: '/api/admin/submissions',
       headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
-    }).then(submissions => {
-      this.submissions = submissions;
-    }).catch(err => {
-      this.error = 'Failed to load submissions';
     });
   },
-  
-  verifyUser(userId) {
-    m.request({
-      method: 'POST',
-      url: `/api/admin/verify-user/${userId}`,
-      headers: { 
-        Authorization: 'Bearer ' + localStorage.getItem('token'),
-        'Content-Type': 'application/json'
+
+  // Centralized helper to resolve area names consistently
+  _getResolvedAreaName(type, sub) {
+    if (type === 'kecamatan') {
+      const code = sub.kecamatanCode;
+      if (!code) return sub.district || 'N/A'; // Handle missing code
+      const fromApi = this.areaData.kecamatanList.find(k => k.code === code);
+      if (fromApi) return fromApi.name;
+      // Fallback logic
+      return sub.district || this.getKecamatanName(code) || code || 'N/A';
+    }
+    if (type === 'desa') {
+      const code = sub.kelurahanDesaCode;
+      if (!code) return sub.village || 'N/A'; // Handle missing code
+      const fromApi = this.areaData.desaList.find(d => d.code === code);
+      if (fromApi) return fromApi.name;
+      // Fallback logic
+      return sub.village || this.getDesaName(code) || code 
+    }
+    return 'N/A';
+  },
+
+  calculateVoteSummary(submissions) {
+    const byKecamatan = {};
+    const byDesa = {};
+    
+    submissions.forEach(sub => {
+      const kecName = this._getResolvedAreaName('kecamatan', sub);
+      const desaName = this._getResolvedAreaName('desa', sub);
+      
+      // Group by Kecamatan (using name as key)
+      if (!byKecamatan[kecName]) {
+        byKecamatan[kecName] = { 
+          calegVotes: 0, 
+          totalVotes: 0, 
+          submissions: 0,
+          kecamatanName: kecName
+        };
       }
-    }).then(() => {
-      this.loadUnverifiedUsers();
-    }).catch(err => {
-      this.error = 'Failed to verify user';
-      m.redraw();
-    });
-  },
-  
-  approveSubmission(submissionId) {
-    m.request({
-      method: 'POST',
-      url: `/api/admin/approve/${submissionId}`,
-      headers: { 
-        Authorization: 'Bearer ' + localStorage.getItem('token'),
-        'Content-Type': 'application/json'
+      byKecamatan[kecName].submissions += 1;
+
+      // Only add votes if the submission is approved
+      if (sub.status === 'approved') {
+        byKecamatan[kecName].calegVotes += parseInt(sub.calegVotes) || 0;
+        byKecamatan[kecName].totalVotes += parseInt(sub.totalVotes || sub.votes) || 0;
       }
-    }).then(() => {
-      this.loadSubmissions();
-    }).catch(err => {
-      this.error = 'Failed to approve submission';
-      m.redraw();
-    });
-  },
-  
-  flagSubmission(submissionId) {
-    m.request({
-      method: 'POST',
-      url: `/api/admin/flag/${submissionId}`,
-      headers: { 
-        Authorization: 'Bearer ' + localStorage.getItem('token'),
-        'Content-Type': 'application/json'
+      
+      // Group by Desa (using name as key)
+      const desaKey = `${kecName}-${desaName}`;
+      if (!byDesa[desaKey]) {
+        byDesa[desaKey] = { 
+          calegVotes: 0, 
+          totalVotes: 0, 
+          submissions: 0,
+          kecamatanName: kecName,
+          desaName: desaName
+        };
       }
-    }).then(() => {
-      this.loadSubmissions();
-    }).catch(err => {
-      this.error = 'Failed to flag submission';
-      m.redraw();
+      byDesa[desaKey].submissions += 1;
+
+      // Only add votes if the submission is approved
+      if (sub.status === 'approved') {
+        byDesa[desaKey].calegVotes += parseInt(sub.calegVotes) || 0;
+        byDesa[desaKey].totalVotes += parseInt(sub.totalVotes || sub.votes) || 0;
+      }
     });
+    
+    // After grouping, derive the available filter options from the summary keys
+    const kecamatanSet = new Set(Object.keys(byKecamatan));
+    const desaMap = new Map();
+    Object.values(byDesa).forEach(desaData => {
+      if (!desaMap.has(desaData.kecamatanName)) {
+        desaMap.set(desaData.kecamatanName, new Set());
+      }
+      desaMap.get(desaData.kecamatanName).add(desaData.desaName);
+    });
+
+    this.availableOptions = {
+      kecamatan: Array.from(kecamatanSet).sort(),
+      desa: desaMap
+    };
+    this.voteSummary = { byKecamatan, byDesa };
+    console.log('Vote summary calculated:', this.voteSummary);
+    console.log('Available options:', this.availableOptions);
   },
-  
+
+  // Helper methods to convert codes to readable names
+  getKecamatanName(code) {
+    const kecamatanNames = {
+      '010': 'DENPASAR SELATAN',
+      '020': 'DENPASAR UTARA', 
+      '030': 'DENPASAR BARAT',
+      '040': 'DENPASAR TIMUR'
+      // Add more mappings as needed
+    };
+    return kecamatanNames[code];
+  },
+
+  getDesaName(code) {
+    const desaNames = {
+      '001': 'SIDAKARYA', // Corrected based on common regional data
+      '002': 'SANUR KAJA', 
+      '003': 'SANUR KAUH',
+      '004': 'RENON',
+      '005': 'SERANGAN',
+      '006': 'RENON',
+      '007': 'PANJER',
+      '008': 'KESIMAN',
+      '009': 'KESIMAN KERTALANGU',
+      '010': 'KESIMAN PETILAN'
+      // Add more mappings as needed
+    };
+    return desaNames[code];
+  },
+
+  // Get filtered data based on current selections
+  getFilteredVoteSummary() {
+    const { selectedKecamatan, selectedDesa } = this.filters;
+    
+    let filteredKecamatan = {};
+    let filteredDesa = {};
+    
+    // Filter Kecamatan
+    if (selectedKecamatan === 'all') {
+      filteredKecamatan = { ...this.voteSummary.byKecamatan };
+    } else {
+      filteredKecamatan[selectedKecamatan] = this.voteSummary.byKecamatan[selectedKecamatan];
+    }
+    
+    // Filter Desa
+    Object.entries(this.voteSummary.byDesa).forEach(([key, data]) => {
+      const matchesKecamatan = selectedKecamatan === 'all' || data.kecamatanName === selectedKecamatan;
+      const matchesDesa = selectedDesa === 'all' || data.desaName === selectedDesa;
+      
+      if (matchesKecamatan && matchesDesa) {
+        filteredDesa[key] = data;
+      }
+    });
+    
+    return {
+      byKecamatan: filteredKecamatan,
+      byDesa: filteredDesa
+    };
+  },
+
+  // Get available desa for selected kecamatan
+  getAvailableDesa() {
+    const kecName = this.filters.selectedKecamatan;
+    
+    if (kecName === 'all') {
+      const allDesa = new Set();
+      this.availableOptions.desa.forEach((desaSet) => {
+        desaSet.forEach(desa => allDesa.add(desa));
+      });
+      return Array.from(allDesa).sort();
+    } else {
+      const desaSet = this.availableOptions.desa.get(kecName);
+      return desaSet ? Array.from(desaSet).sort() : [];
+    }
+  },
+
+  // Handle filter changes
+  onKecamatanChange(value) {
+    this.filters.selectedKecamatan = value;
+    this.filters.selectedDesa = 'all'; // Reset dependent filter
+    m.redraw();
+  },
+
+  onDesaChange(value) {
+    this.filters.selectedDesa = value;
+    m.redraw();
+  },
+
+  // --- Map Modal Methods ---
+  openMapModal(coordinates) {
+    if (!coordinates || coordinates.length !== 2) return;
+    const [lng, lat] = coordinates;
+    this.isMapModalOpen = true;
+    // Use a Google Maps embed URL that doesn't require an API key
+    this.mapModalUrl = `https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`;
+    m.redraw();
+  },
+
+  closeMapModal() {
+    this.isMapModalOpen = false;
+    this.mapModalUrl = '';
+    m.redraw();
+  },
+
+  renderMapModal() {
+    if (!this.isMapModalOpen) return null;
+    return m('dialog', { open: true, onclick: () => this.closeMapModal() }, [
+      m('article', { 
+        style: { padding: '0', maxWidth: '800px', width: '90vw' },
+        onclick: (e) => e.stopPropagation() // Prevent modal from closing when clicking inside
+      }, [
+        m('header', { style: { padding: '0.5rem 1rem', display: 'flex', justifyContent: 'flex-end' } },
+          m('a.close', { href: '#', 'aria-label': 'Close', onclick: (e) => { e.preventDefault(); this.closeMapModal(); } })
+        ),
+        m('div', { style: { padding: '0 1rem 1rem 1rem' } },
+          m('iframe', {
+            src: this.mapModalUrl,
+            width: '100%', height: '500', style: { border: 0, display: 'block' },
+            allowfullscreen: '', loading: 'lazy', referrerpolicy: 'no-referrer-when-downgrade'
+          })
+        )
+      ])
+    ]);
+  },
+
+  renderStatsCards() {
+    const filteredSummary = this.getFilteredVoteSummary();
+    
+    const totalCalegVotes = Object.values(filteredSummary.byKecamatan)
+      .reduce((sum, data) => sum + data.calegVotes, 0);
+    const totalSahVotes = Object.values(filteredSummary.byKecamatan)
+      .reduce((sum, data) => sum + data.totalVotes, 0);
+
+    return m('section.grid', [
+      m('article', [
+        m('h4', 'Pengguna Belum Terverifikasi'),
+        m('h2', this.unverifiedUsers.length)
+      ]),
+      m('article', [
+        m('h4', 'Total Submission'),
+        m('h2', this.allSubmissions.length)
+      ]),
+      m('article', [
+        m('h4', 'Total Suara Caleg'),
+        m('h2', { style: { color: '#2563eb' } }, totalCalegVotes.toLocaleString('id-ID'))
+      ]),
+      m('article', [
+        m('h4', 'Total Suara Sah'),
+        m('h2', { style: { color: '#059669' } }, totalSahVotes.toLocaleString('id-ID'))
+      ])
+    ]);
+  },
+
+  renderUnverifiedUsersSection() {
+    return m('section', [
+      m('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' } }, [
+        m('h4', { style: { margin: 0 } }, 'Pengguna Belum Terverifikasi'),
+        m('button', { 
+          class: 'outline secondary',
+          style: { margin: 0, padding: '0.25rem 0.75rem' },
+          onclick: () => this.refreshUsers(),
+          disabled: this.loadingUsers
+        }, this.loadingUsers ? 'Memuat...' : '🔄 Refresh')
+      ]),
+      this.unverifiedUsers.length === 0 
+        ? m('p', 'Tidak ada pengguna yang perlu diverifikasi')
+        : m('table', [
+          m('thead', m('tr', [
+            m('th', 'Nama'),
+            m('th', 'No. HP'),
+            m('th', 'Tanggal Daftar'),
+            m('th', 'Aksi')
+          ])),
+          m('tbody', this.unverifiedUsers.map(user => 
+            m('tr', [
+              m('td', user.fullName),
+              m('td', user.phoneNumber),
+              m('td', new Date(user.createdAt).toLocaleDateString('id-ID')),
+              m('td', m('button', {
+                onclick: () => this.verifyUser(user._id)
+              }, 'Verifikasi'))
+            ])
+          ))
+        ])
+    ]);
+  },
+
+  renderSubmissionsSection() {
+    return m('section', [
+      m('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' } }, [
+        m('h4', { style: { margin: 0 } }, 'Submission Terbaru'),
+        m('button', { 
+          class: 'outline secondary',
+          style: { margin: 0, padding: '0.25rem 0.75rem' },
+          onclick: () => this.refreshSubmissionsAndSummary(),
+          disabled: this.loadingSubmissions
+        }, this.loadingSubmissions ? 'Memuat...' : '🔄 Refresh')
+      ]),
+      this.allSubmissions.length === 0
+        ? m('p', 'Belum ada submission')
+        : m('table', [
+          m('thead', m('tr', [
+            m('th', 'Volunteer'),
+            m('th', 'TPS'),
+            m('th', 'Kecamatan'),
+            m('th', 'Desa/Kelurahan'),
+            m('th', 'Suara'),
+            m('th', 'Foto'),
+            m('th', 'GPS'),
+            m('th', 'Status'),
+            m('th', 'Aksi')
+          ])),
+          m('tbody', this.getPaginatedSubmissions().map(sub => {
+            const kecamatanName = this._getResolvedAreaName('kecamatan', sub);
+            const desaName = this._getResolvedAreaName('desa', sub);
+            
+            return m('tr', [
+                m('td', sub.volunteerDisplayName || 'Unknown'),
+                m('td', sub.tps || sub.tpsNumber),
+                m('td', kecamatanName),
+                m('td', desaName),
+                m('td', `${sub.calegVotes || ''}/${sub.totalVotes || sub.votes || ''}`),
+                m('td', sub.hasPhoto
+                  ? m('button', {
+                      onclick: () => this.viewPhoto(sub._id),
+                      style: { fontSize: '12px', padding: '4px 8px', background: '#007bff', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }
+                    }, 'Lihat')
+                  : m('span', { style: { color: '#999' } }, '❌')),
+                m('td', (sub.location && sub.location.coordinates && sub.location.coordinates.length === 2)
+                  ? m('button', {
+                      onclick: () => this.openMapModal(sub.location.coordinates),
+                      title: 'Lihat Peta',
+                      class: 'outline secondary',
+                      style: { margin: 0, padding: '0.25rem 0.5rem', fontSize: '1.1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }
+                    }, '📍')
+                  : m('span', ""))])}))
+        ])
+    ]);
+  },
+  getPaginatedSubmissions() {
+    const start = (this.currentPage - 1) * this.itemsPerPage;
+    const end = start + this.itemsPerPage;
+    return this.allSubmissions.slice(start, end);
+  },
+                 
+  viewPhoto(submissionId) {
+    // Open photo in a new window/tab
+    window.open(`/api/submissions/photo/${submissionId}`, '_blank');
+  },
+
+  // --- Details Modal Methods ---
+  openDetailsModal(filterType, identifier) {
+    this.isDetailsModalOpen = true;
+    let filtered = [];
+
+    if (filterType === 'all') {
+      this.detailsModalTitle = 'Semua Submission';
+      filtered = this.allSubmissions;
+    } else if (filterType === 'kecamatan') {
+      this.detailsModalTitle = `Submission untuk Kecamatan: ${identifier}`;
+      filtered = this.allSubmissions.filter(sub => 
+        (this.areaData.kecamatanList.find(k => k.code === sub.kecamatanCode)?.name || sub.district || sub.kecamatanCode) === identifier
+      );
+    } else if (filterType === 'desa') {
+      const { kecamatanName, desaName } = identifier;
+      this.detailsModalTitle = `Submission untuk Desa: ${desaName} (Kec. ${kecamatanName})`;
+      filtered = this.allSubmissions.filter(sub => {
+        const subKecName = this.areaData.kecamatanList.find(k => k.code === sub.kecamatanCode)?.name || sub.district || sub.kecamatanCode;
+        const subDesaName = this.areaData.desaList.find(d => d.code === sub.kelurahanDesaCode)?.name || sub.village || sub.kelurahanDesaCode;
+        return subKecName === kecamatanName && subDesaName === desaName;
+      });
+    }
+    
+    this.submissionsForModal = filtered;
+    m.redraw();
+  },
+
+  closeDetailsModal() {
+    this.isDetailsModalOpen = false;
+    this.detailsModalTitle = '';
+    this.submissionsForModal = [];
+    m.redraw();
+  },
+
+  renderDetailsModal() {
+    if (!this.isDetailsModalOpen) return null;
+    
+    return m('dialog', { open: true }, [
+      m('article', { style: { maxWidth: '95vw', width: '1200px' } }, [
+        m('header', [
+          m('h5', this.detailsModalTitle),
+          m('a.close', { href: '#', 'aria-label': 'Close', onclick: (e) => { e.preventDefault(); this.closeDetailsModal(); } })
+        ]),
+        m('div', { style: { overflowX: 'auto' } },
+          m('table', [
+            m('thead', m('tr', [
+              m('th', 'Volunteer'), m('th', 'TPS'), m('th', 'Kecamatan'), m('th', 'Desa/Kelurahan'),
+              m('th', 'Suara'), m('th', 'Foto'), m('th', 'GPS'), m('th', 'Status'), m('th', 'Aksi')
+            ])),
+            m('tbody', this.submissionsForModal.map(sub => {
+              const kecamatanName = this.areaData.kecamatanList.find(k => k.code === sub.kecamatanCode)?.name || sub.district || sub.kecamatanCode || 'N/A';
+              const desaName = this.areaData.desaList.find(d => d.code === sub.kelurahanDesaCode)?.name || sub.village || sub.kelurahanDesaCode || 'N/A';
+              return m('tr', [
+                m('td', sub.volunteerDisplayName || 'Unknown'),
+                m('td', sub.tps || sub.tpsNumber),
+                m('td', kecamatanName),
+                m('td', desaName),
+                m('td', `${sub.calegVotes || ''}/${sub.totalVotes || sub.votes || ''}`),
+                m('td', sub.hasPhoto ? m('button', { onclick: () => this.viewPhoto(sub._id) }, 'Lihat') : '❌'),
+                m('td', (sub.location && sub.location.coordinates) ? m('button', { onclick: () => this.openMapModal(sub.location.coordinates), class:'outline secondary', style:{padding:'0.25rem 0.5rem'} }, '📍') : '❌'),
+                m('td', sub.status || '-'),
+                m('td', [
+                    sub.status !== 'approved' && m('button', { onclick: () => this.approveSubmission(sub._id), style: { marginRight: '0.5rem' } }, 'Setujui'),
+                    sub.status !== 'flagged' && m('button', { onclick: () => this.flagSubmission(sub._id), class: 'secondary', style: { marginLeft: '0.5rem' } }, 'Tandai')
+                ])
+              ]);
+            }))
+          ])
+        )
+      ])
+    ]);
+  },
+
+  renderSummarySection() {
+    const summaryByKecamatan = Object.values(this.voteSummary.byKecamatan);
+    const summaryByDesa = Object.values(this.voteSummary.byDesa);
+
+    let tableData = [];
+    const tableHeaders = ['Area', 'Total Submission', 'Total Suara Sah', 'Total Suara Caleg', 'Aksi'];
+
+    if (this.summaryFilterLevel === 'all') {
+      const totalSubmissions = this.allSubmissions.length;
+      const totalSah = summaryByKecamatan.reduce((sum, kec) => sum + kec.totalVotes, 0);
+      const totalCaleg = summaryByKecamatan.reduce((sum, kec) => sum + kec.calegVotes, 0);
+      tableData.push({ area: 'Semua Area', submissions: totalSubmissions, totalVotes: totalSah, calegVotes: totalCaleg, filterType: 'all', identifier: 'all' });
+    } else if (this.summaryFilterLevel === 'kecamatan') {
+      tableData = summaryByKecamatan.map(kec => ({ area: kec.kecamatanName, submissions: kec.submissions, totalVotes: kec.totalVotes, calegVotes: kec.calegVotes, filterType: 'kecamatan', identifier: kec.kecamatanName }));
+    } else if (this.summaryFilterLevel === 'desa') {
+      const filteredDesa = this.summaryFilterKecamatan === 'all' ? summaryByDesa : summaryByDesa.filter(d => d.kecamatanName === this.summaryFilterKecamatan);
+      tableData = filteredDesa.map(desa => {
+        // Only show Kecamatan name if 'Semua Kecamatan' is selected
+        const areaName = this.summaryFilterKecamatan === 'all'
+          ? `${desa.desaName} (Kec. ${desa.kecamatanName})`
+          : desa.desaName;
+        
+        return { area: areaName, submissions: desa.submissions, totalVotes: desa.totalVotes, calegVotes: desa.calegVotes, filterType: 'desa', identifier: { kecamatanName: desa.kecamatanName, desaName: desa.desaName } };
+      });
+    }
+
+    return m('section', { style: { marginTop: '2rem', borderTop: '1px solid var(--pico-muted-border-color)', paddingTop: '1.5rem' } }, [
+      m('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' } }, [
+        m('h4', { style: { margin: 0 } }, 'Ringkasan Suara Berdasarkan Area'),
+        m('button', { 
+          class: 'outline secondary',
+          style: { margin: 0, padding: '0.25rem 0.75rem' },
+          onclick: () => this.loadDashboardData(),
+          disabled: this.loading
+        }, this.loading ? 'Memuat...' : '🔄 Refresh')
+      ]),
+      m('div.grid', [
+        m('div', [
+          m('label', { for: 'summary-level' }, 'Tampilkan Berdasarkan'),
+          m('select#summary-level', { onchange: (e) => { this.summaryFilterLevel = e.target.value; this.summaryFilterKecamatan = 'all'; } }, [
+            m('option', { value: 'all' }, 'Semua'),
+            m('option', { value: 'kecamatan' }, 'Kecamatan'),
+            m('option', { value: 'desa' }, 'Desa/Kelurahan')
+          ])
+        ]),
+        this.summaryFilterLevel === 'desa' && m('div', [
+          m('label', { for: 'summary-kecamatan' }, 'Pilih Kecamatan'),
+          m('select#summary-kecamatan', { onchange: (e) => this.summaryFilterKecamatan = e.target.value }, [
+            m('option', { value: 'all' }, 'Semua Kecamatan'),
+            ...this.availableOptions.kecamatan.map(kecName => m('option', { value: kecName }, kecName))
+          ])
+        ])
+      ]),
+      m('table', { style: { marginTop: '1rem' } }, [
+        m('thead', m('tr', tableHeaders.map(h => m('th', h)))),
+        m('tbody', tableData.map(row => m('tr', [
+          m('td', row.area),
+          m('td', row.submissions),
+          m('td', row.totalVotes.toLocaleString('id-ID')),
+          m('td', row.calegVotes.toLocaleString('id-ID')),
+          m('td', m('button', { onclick: () => this.openDetailsModal(row.filterType, row.identifier) }, 'Lihat Detail'))
+        ])))
+      ])
+    ]);
+  },
+
+  // --- Pagination Methods ---
+  getPaginatedSubmissions() {
+    const start = (this.currentPage - 1) * this.itemsPerPage;
+    const end = start + this.itemsPerPage;
+    return this.allSubmissions.slice(start, end);
+  },
+
+  renderPaginationControls() {
+    if (this.totalPages <= 1) return null;
+    return m('.pagination-controls', { style: { marginTop: '1rem', textAlign: 'center' } }, [
+      m('button', { 
+        onclick: () => this.currentPage--, 
+        disabled: this.currentPage === 1 
+      }, '‹ Sebelumnya'),
+      m('span', { style: { margin: '0 1rem', verticalAlign: 'middle' } }, `Halaman ${this.currentPage} dari ${this.totalPages}`),
+      m('button', { 
+        onclick: () => this.currentPage++, 
+        disabled: this.currentPage >= this.totalPages 
+      }, 'Berikutnya ›')
+    ]);
+  },
+
   renderDashboard() {
+    const filteredSummary = this.getFilteredVoteSummary();
+    
+    // Calculate totals from filtered data
+    const totalCalegVotes = Object.values(filteredSummary.byKecamatan)
+      .reduce((sum, data) => sum + data.calegVotes, 0);
+    const totalSahVotes = Object.values(filteredSummary.byKecamatan)
+      .reduce((sum, data) => sum + data.totalVotes, 0);
+    
     return [
       m('h3', 'Admin Dashboard'),
       this.error && m('div.error', this.error),
       
-      // Stats
+      // Stats - Enhanced with vote totals from filtered data
       m('div.grid', [
         m('article', [
           m('h4', 'Pengguna Belum Terverifikasi'),
@@ -127,9 +695,19 @@ export default {
         ]),
         m('article', [
           m('h4', 'Total Submission'),
-          m('h2', this.submissions.length)
+          m('h2', this.allSubmissions.length)
+        ]),
+        m('article', [
+          m('h4', 'Total Suara Caleg'),
+          m('h2', { style: { color: '#2563eb' } }, totalCalegVotes.toLocaleString('id-ID'))
+        ]),
+        m('article', [
+          m('h4', 'Total Suara Sah'),
+          m('h2', { style: { color: '#059669' } }, totalSahVotes.toLocaleString('id-ID'))
         ])
       ]),
+      
+ 
       
       // Unverified Users
       m('section', [
@@ -156,80 +734,163 @@ export default {
           ])
       ]),
       
-      // Recent Submissions
+      // Recent Submissions (existing table)
       m('section', [
-        m('h4', 'Submission Terbaru'),
-        this.submissions.length === 0
+        m('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' } }, [
+          m('h4', { style: { margin: 0 } }, 'Submission Terbaru'),
+          m('button', { 
+            class: 'outline secondary',
+            style: { margin: 0, padding: '0.25rem 0.75rem' },
+            onclick: () => this.loadDashboardData(),
+            disabled: this.loading
+          }, this.loading ? 'Memuat...' : '🔄 Refresh')
+        ]),
+        this.allSubmissions.length === 0
           ? m('p', 'Belum ada submission')
           : m('table', [
             m('thead', m('tr', [
               m('th', 'Volunteer'),
               m('th', 'TPS'),
-              m('th', 'Desa'),
+              m('th', 'Kecamatan'),
+              m('th', 'Desa/Kelurahan'),
               m('th', 'Suara'),
+              m('th', 'Foto'),
+              m('th', 'GPS'),
               m('th', 'Status'),
               m('th', 'Aksi')
             ])),
-            m('tbody', this.submissions.slice(0, 10).map(sub => 
-              m('tr', [
-                m('td', sub.volunteer?.fullName || 'Unknown'),
-                m('td', sub.tps),
-                m('td', sub.village),
-                m('td', `${sub.calegVotes}/${sub.totalVotes}`),
-                m('td', sub.status),
-                m('td', [
-                  sub.status === 'pending' && m('button', {
-                    onclick: () => this.approveSubmission(sub._id),
-                    style: { marginRight: '0.5rem' }
-                  }, 'Setujui'),
-                  m('button', {
-                    onclick: () => this.flagSubmission(sub._id),
-                    class: 'secondary'
-                  }, 'Tandai')
-                ])
-              ])
-            ))
-          ])
-      ])
+            m('tbody', this.getPaginatedSubmissions().map(sub => {
+              // Find names for codes, with fallbacks to legacy fields or codes themselves
+              const kecamatanName = this._getResolvedAreaName('kecamatan', sub);
+              const desaName = this._getResolvedAreaName('desa', sub);
+              
+              return m('tr', [
+                  m('td', sub.volunteerDisplayName || 'Unknown'),
+                  m('td', sub.tps || sub.tpsNumber),
+                  m('td', kecamatanName),
+                  m('td', desaName),
+                  m('td', `${sub.calegVotes || ''}/${sub.totalVotes || sub.votes || ''}`),
+                  m('td', sub.hasPhoto
+                    ? m('button', {
+                        onclick: () => this.viewPhoto(sub._id),
+                        style: { fontSize: '12px', padding: '4px 8px', background: '#007bff', color: 'white', border: 'none', borderRadius: '3px', cursor: 'pointer' }
+                      }, 'Lihat')
+                    : m('span', { style: { color: '#999' } }, '❌')),
+                  m('td', (sub.location && sub.location.coordinates && sub.location.coordinates.length === 2)
+                    ? m('button', {
+                        onclick: () => this.openMapModal(sub.location.coordinates),
+                        title: 'Lihat Peta',
+                        class: 'outline secondary',
+                        style: { margin: 0, padding: '0.25rem 0.5rem', fontSize: '1.1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }
+                      }, '📍')
+                    : m('span', { style: { color: '#999' } }, '❌')),
+                  m('td', sub.status || '-'),
+                  m('td', [
+                    sub.status !== 'approved' && m('button', { onclick: () => this.approveSubmission(sub._id), style: { marginRight: '0.5rem' } }, 'Setujui'),
+                    sub.status !== 'flagged' && m('button', { onclick: () => this.flagSubmission(sub._id), class: 'secondary', style: { marginLeft: '0.5rem' } }, 'Tandai')
+                  ])
+                ]);
+            }))
+          ]),
+        this.renderPaginationControls(),
+      ]),
+      this.renderDetailsModal(),
+      this.renderSummarySection(),
+      this.renderMapModal()
     ];
   },
   
+  // Add missing methods
+  verifyUser(userId) {
+    return m.request({
+      method: 'POST',
+      url: `/api/admin/verify-user/${userId}`,
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    }).then(() => {
+      // Remove user from unverified list
+      this.unverifiedUsers = this.unverifiedUsers.filter(user => user._id !== userId);
+      m.redraw();
+    }).catch(err => {
+      console.error('Error verifying user:', err);
+      this.error = 'Failed to verify user';
+    });
+  },
+
+  approveSubmission(submissionId) {
+    return m.request({
+      method: 'POST',
+      url: `/api/admin/approve/${submissionId}`,
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    }).then(() => {
+      // Update submission status in local array
+      const submission = this.allSubmissions.find(s => s._id === submissionId);
+      if (submission) {
+        submission.status = 'approved';
+      }
+      // Recalculate summaries to reflect the change
+      this.calculateVoteSummary(this.allSubmissions);
+      m.redraw();
+    }).catch(err => {
+      console.error('Error approving submission:', err);
+      this.error = 'Failed to approve submission';
+    });
+  },
+
+  flagSubmission(submissionId) {
+    return m.request({
+      method: 'POST',
+      url: `/api/admin/flag/${submissionId}`,
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+    }).then(() => {
+      // Update submission status in local array
+      const submission = this.allSubmissions.find(s => s._id === submissionId);
+      if (submission) {
+        submission.status = 'flagged';
+      }
+      // Recalculate summaries to reflect the change
+      this.calculateVoteSummary(this.allSubmissions);
+      m.redraw();
+    }).catch(err => {
+      console.error('Error flagging submission:', err);
+      this.error = 'Failed to flag submission';
+    });
+  },
+
+  renderNavigation() {
+    return m('nav', [
+      m('ul', [
+        m('li', m('button', {
+          class: this.currentView === 'dashboard' ? 'active' : '',
+          onclick: () => this.currentView = 'dashboard'
+        }, 'Dashboard')),
+        m('li', m('button', {
+          class: this.currentView === 'area-setting' ? 'active' : '',
+          onclick: () => this.currentView = 'area-setting'
+        }, 'Pengaturan Area')),
+        m('li', m('button', {
+          class: this.currentView === 'caleg-setting' ? 'active' : '',
+          onclick: () => this.currentView = 'caleg-setting'
+        }, 'Pengaturan Caleg'))
+      ])
+    ]);
+  },
+
   view() {
     if (this.loading) {
-      return m('main.container', m('p', 'Loading...'));
+      return m('div', 'Loading...');
     }
-    
-    return m('main.container', [
-      m('nav', [
-        m('ul', [
-          m('li', m('button', {
-            onclick: () => { this.currentView = 'dashboard'; },
-            class: this.currentView === 'dashboard' ? '' : 'outline'
-          }, 'Dashboard')),
-          m('li', m('button', {
-            onclick: () => { this.currentView = 'area'; },
-            class: this.currentView === 'area' ? '' : 'outline'
-          }, 'Pengaturan Area')),
-          m('li', m('button', {
-            onclick: () => { this.currentView = 'caleg'; },
-            class: this.currentView === 'caleg' ? '' : 'outline'
-          }, 'Pengaturan Caleg'))
-        ]),
-        m('ul', [
-          m('li', m('button', {
-            onclick: () => {
-              localStorage.removeItem('token');
-              localStorage.removeItem('user');
-              m.route.set('/app/login');
-            },
-            class: 'contrast'
-          }, i18n.logout))
-        ])
-      ]),
+
+    return m('div.container-fluid', [
+      m('h2', 'Admin Panel'),
       
-      this.currentView === 'dashboard' && this.renderDashboard(),
-      this.currentView === 'area' && m(AreaSetting),
-      this.currentView === 'caleg' && m(CalegSetting)
+      // Navigation
+      this.renderNavigation(),
+      
+      // Content based on current view
+      this.currentView === 'dashboard' ? this.renderDashboard() :
+        this.currentView === 'area-setting' ? m(AreaSetting) :
+        this.currentView === 'caleg-setting' ? m(CalegSetting) :
+        m('div', 'Unknown view')
     ]);
   }
 };

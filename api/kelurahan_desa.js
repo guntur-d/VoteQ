@@ -8,11 +8,16 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       const { provinsiCode, kabupatenCode, kecamatanCode } = req.query;
-      if (!provinsiCode || !kabupatenCode || !kecamatanCode) {
-        return res.status(400).json({ error: 'provinsiCode, kabupatenCode, and kecamatanCode are required' });
+      if (!provinsiCode || !kabupatenCode) {
+        return res.status(400).json({ error: 'provinsiCode and kabupatenCode are required' });
       }
       
-      const list = await KelurahanDesa.find({ provinsiCode, kabupatenCode, kecamatanCode }, { _id: 0, code: 1, name: 1 });
+      const filter = { provinsiCode, kabupatenCode };
+      if (kecamatanCode) {
+        filter.kecamatanCode = kecamatanCode;
+      }
+      
+      const list = await KelurahanDesa.find(filter, { _id: 0, code: 1, name: 1 });
       res.status(200).json(list);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch kelurahan/desa' });
