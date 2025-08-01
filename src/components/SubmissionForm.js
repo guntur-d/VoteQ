@@ -1,4 +1,4 @@
-// src/components/SubmissionForm.js
+// src/components/SubmissionForm.js - Fixed Photo Update Logic
 import { i18n } from '../i18n.js';
 
 export default {
@@ -21,15 +21,34 @@ export default {
   hideFields: [],
   editMode: false,
   submissionId: null,
-  prefillData: null, // Store prefill data
+  prefillData: null,
+  areaData: { kecamatanList: [], desaList: [] },
   
+  // Photo handling state
+  photoBase64: null,
+  photoMime: null,
+  photoProcessing: false,
+  photoChanged: false,
+  hasExistingPhoto: false,
+
   async oninit(vnode) {
-    // Check if we're in edit mode
-    this.submissionId = vnode.attrs.id;
-    this.editMode = !!this.submissionId;
-    
-    if (vnode.attrs && vnode.attrs.prefill) {
-      this.prefillData = vnode.attrs.prefill; // Store prefill data
+    this.onsuccess = vnode.attrs.onsuccess;
+    this.hideFields = vnode.attrs.hideFields || [];
+    this.areaData = vnode.attrs.areaData || { kecamatanList: [], desaList: [] };
+
+    if (vnode.attrs.submission) {
+      // Edit mode with submission object
+      this.editMode = true;
+      this.submissionId = vnode.attrs.submission._id;
+      this.populateForm(vnode.attrs.submission);
+    } else if (vnode.attrs.id) {
+      // Edit mode with ID - fetch data
+      this.editMode = true;
+      this.submissionId = vnode.attrs.id;
+      await this.fetchSubmissionData();
+    } else if (vnode.attrs.prefill) {
+      // Prefill mode for new submissions
+      this.prefillData = vnode.attrs.prefill;
       this.village = vnode.attrs.prefill.village || '';
       this.district = vnode.attrs.prefill.district || '';
       this.provinsiCode = vnode.attrs.prefill.provinsiCode || '';
@@ -37,32 +56,69 @@ export default {
       this.kecamatanCode = vnode.attrs.prefill.kecamatanCode || '';
       this.kelurahanDesaCode = vnode.attrs.prefill.kelurahanDesaCode || '';
       this.tps = vnode.attrs.prefill.tps || '';
-      // Prefill photo preview if provided
-      if (vnode.attrs.prefill.photoUrl) {
-        this.photoPreview = vnode.attrs.prefill.photoUrl;
-      }
-    } else {
-      // fallback: get from route params if not present in prefill
-      this.village = m.route.param('village') || '';
-      this.district = m.route.param('district') || '';
-      // Prefill photo preview from params if available
-      const photoParam = m.route.param('photoUrl') || m.route.param('photo');
-      if (photoParam) {
-        this.photoPreview = photoParam;
-      }
-    }
-    if (vnode.attrs && vnode.attrs.hideFields) {
-      this.hideFields = vnode.attrs.hideFields;
-    }
-    // Store the success callback
-    this.onsuccess = vnode.attrs.onsuccess;
-    
-    // If in edit mode, fetch the existing submission data
-    if (this.editMode) {
-      await this.fetchSubmissionData();
     }
   },
-  
+
+  onupdate(vnode) {
+    if (vnode.attrs.submission && vnode.attrs.submission._id !== this.submissionId) {
+      this.editMode = true;
+      this.submissionId = vnode.attrs.submission._id;
+      this.areaData = vnode.attrs.areaData || { kecamatanList: [], desaList: [] };
+      this.populateForm(vnode.attrs.submission);
+      m.redraw();
+    }
+  },
+
+  populateForm(response) {
+    console.log('SubmissionForm: populateForm called with:', response);
+    
+    // Reset photo state
+    this.photoChanged = false;
+    this.photoBase64 = null;
+    this.photoMime = null;
+    this.photo = null;
+    this.hasExistingPhoto = false;
+
+    // Populate form fields
+    this.tps = response.tps || response.tpsNumber || '';
+    this.totalVotes = response.totalVotes || response.votes || '';
+    this.calegVotes = response.calegVotes || '';
+
+    // Handle location data
+    if (response.location && response.location.coordinates && response.location.coordinates.length === 2) {
+      this.longitude = response.location.coordinates[0];
+      this.latitude = response.location.coordinates[1];
+    } else if (response.latitude && response.longitude) {
+      this.latitude = response.latitude;
+      this.longitude = response.longitude;
+    }
+
+    // Handle area codes
+    this.provinsiCode = response.provinsiCode || '';
+    this.kabupatenKotaCode = response.kabupatenKotaCode || '';
+    this.kecamatanCode = response.kecamatanCode || '';
+    this.kelurahanDesaCode = response.kelurahanDesaCode || '';
+
+    // Resolve area names
+    const kec = this.areaData.kecamatanList.find(k => k.code === this.kecamatanCode);
+    this.district = kec?.name || response.district || this.kecamatanCode || 'N/A';
+
+    const desa = this.areaData.desaList.find(d => d.code === this.kelurahanDesaCode);
+    this.village = desa?.name || response.village || this.kelurahanDesaCode || 'N/A';
+
+    // Handle photo preview
+    if (response.hasPhoto || response.photo || response.photoMime) {
+      this.hasExistingPhoto = true;
+      this.photoPreview = `/api/submissions/photo/${response._id || this.submissionId}?t=${Date.now()}`;
+      console.log('SubmissionForm: Set photo preview:', this.photoPreview);
+    } else {
+      this.hasExistingPhoto = false;
+      this.photoPreview = null;
+    }
+
+    m.redraw();
+  },
+
   async fetchSubmissionData() {
     try {
       this.loading = true;
@@ -73,33 +129,9 @@ export default {
           Authorization: 'Bearer ' + localStorage.getItem('token')
         }
       });
-      
-      // Populate form with existing data - handle both old and new field names
-      this.tps = response.tps || response.tpsNumber || '';
-      // Only overwrite if backend actually provides them
-      if (response.village) this.village = response.village;
-      if (response.district) this.district = response.district;
-      this.totalVotes = response.totalVotes || response.votes || '';
-      this.calegVotes = response.calegVotes || '';
-      
-      // Handle location data - check both formats
-      if (response.location && response.location.coordinates && response.location.coordinates.length === 2) {
-        this.longitude = response.location.coordinates[0];
-        this.latitude = response.location.coordinates[1];
-      } else if (response.latitude && response.longitude) {
-        this.latitude = response.latitude;
-        this.longitude = response.longitude;
-      }
-      
-      // Handle area codes
-      this.provinsiCode = response.provinsiCode || '';
-      this.kabupatenKotaCode = response.kabupatenKotaCode || '';
-      this.kecamatanCode = response.kecamatanCode || '';
-      this.kelurahanDesaCode = response.kelurahanDesaCode || '';
-      
-      // Set photo preview if photo exists
-      if (response.hasPhoto) {
-        this.photoPreview = `/api/submissions/photo/${this.submissionId}`;
+
+      if (response) {
+        this.populateForm(response);
       }
     } catch (error) {
       console.error('Error fetching submission data:', error);
@@ -109,7 +141,7 @@ export default {
       m.redraw();
     }
   },
-  
+
   getLocation() {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -124,33 +156,72 @@ export default {
       );
     }
   },
-  
-  handleFileUpload(e) {
+
+  async handleFileUpload(e) {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = ev => {
-        this.photoPreview = ev.target.result; // Full data URL for the preview
-        this.photoBase64 = ev.target.result.split(',')[1]; // Remove data:image/...;base64,
-        this.photoMime = file.type;
-        m.redraw();
-      };
-      reader.readAsDataURL(file);
-      this.photo = file;
-    } else {
+    console.log('[PHOTO] File selected:', file?.name || 'No file');
+
+    if (!file) {
+      // User cleared the file input
+      this.photo = null;
       this.photoBase64 = null;
       this.photoMime = null;
+      this.photoProcessing = false;
+      this.photoChanged = true;
+      
+      // In edit mode, this means removing the photo
+      if (this.editMode) {
+        this.photoPreview = null;
+        this.hasExistingPhoto = false;
+      }
+      
+      m.redraw();
+      return;
+    }
+
+    // Start processing
+    this.photo = file;
+    this.photoProcessing = true;
+    this.photoChanged = true;
+    this.photoBase64 = null;
+    this.photoPreview = URL.createObjectURL(file);
+    m.redraw();
+
+    console.log('[PHOTO] Started Base64 conversion...');
+
+    try {
+      const dataUrl = await this.fileToBase64(file);
+      this.photoBase64 = dataUrl.split(',')[1]; // Remove data URL prefix
+      this.photoMime = file.type;
+      this.photoProcessing = false;
+      console.log('[PHOTO] Base64 conversion completed');
+      m.redraw();
+    } catch (error) {
+      console.error('[PHOTO] Conversion error:', error);
+      this.error = 'Gagal memproses file gambar.';
       this.photo = null;
-      this.photoPreview = null;
+      this.photoBase64 = null;
+      this.photoProcessing = false;
+      this.photoChanged = false;
+      m.redraw();
     }
   },
-  
+
+  fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = error => reject(error);
+    });
+  },
+
   async submit() {
     this.loading = true;
     this.error = '';
     this.success = '';
 
-    // Client-side validation for required photo (only for new submissions)
+    // Validation for new submissions
     if (!this.editMode && !this.photo) {
       this.error = 'Foto bukti wajib diunggah.';
       this.loading = false;
@@ -158,14 +229,23 @@ export default {
       return;
     }
 
-    // Wait for photoBase64 if file is selected and not yet loaded
-    if (this.photo && !this.photoBase64) {
-      this.error = 'Gambar masih diproses, mohon tunggu.';
+    // Check if photo is processing
+    if (this.photo && this.photoProcessing) {
+      this.error = 'Gambar masih diproses, mohon tunggu...';
       this.loading = false;
       m.redraw();
       return;
     }
 
+    // Check if photo selected but conversion failed
+    if (this.photo && !this.photoBase64) {
+      this.error = 'Gambar gagal diproses. Silakan unggah ulang.';
+      this.loading = false;
+      m.redraw();
+      return;
+    }
+
+    // Vote validation
     const totalVotesNum = parseInt(this.totalVotes, 10) || 0;
     const calegVotesNum = parseInt(this.calegVotes, 10) || 0;
 
@@ -176,58 +256,76 @@ export default {
       return;
     }
 
+    // Build payload
     const payload = {
       tps: this.tps,
       totalVotes: totalVotesNum,
       calegVotes: calegVotesNum,
-
       provinsiCode: this.provinsiCode,
       kabupatenKotaCode: this.kabupatenKotaCode,
       kecamatanCode: this.kecamatanCode,
       kelurahanDesaCode: this.kelurahanDesaCode,
-
       latitude: this.latitude,
       longitude: this.longitude
     };
 
-    // Only include photo data if a new photo was uploaded
-    if (this.photoBase64) {
-      payload.photoBase64 = this.photoBase64;
-      payload.photoContentType = this.photoMime;
+    // Handle photo data
+    if (this.photoChanged) {
+      if (this.photoBase64) {
+        // New photo uploaded
+        payload.photoBase64 = `data:${this.photoMime};base64,${this.photoBase64}`;
+        console.log('[SUBMIT] Including new photo in payload');
+      } else if (!this.photo && this.editMode) {
+        // Photo was cleared in edit mode
+        payload.removePhoto = true;
+        console.log('[SUBMIT] Removing photo in edit mode');
+      }
     }
+    // If photoChanged is false, don't include any photo data (keep existing)
 
     const url = this.editMode ? `/api/submissions/${this.submissionId}` : '/api/submissions';
     const method = this.editMode ? 'PUT' : 'POST';
 
-    m.request({
-      method: method,
-      url: url,
-      body: payload,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + localStorage.getItem('token')
-      }
-    }).then(response => {
+    console.log(`Submitting to ${method} ${url}`, payload);
+
+    try {
+      const response = await m.request({
+        method: method,
+        url: url,
+        body: payload,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + localStorage.getItem('token')
+        }
+      });
+
       this.success = this.editMode ? 'Data berhasil diperbarui!' : 'Data berhasil dikirim!';
+
       if (!this.editMode) {
         this.resetForm();
+      } else {
+        // Reset photo change tracking after successful update
+        this.photoChanged = false;
+        // Update preview URL with new timestamp to force refresh
+        if (this.hasExistingPhoto || this.photoBase64) {
+          this.photoPreview = `/api/submissions/photo/${this.submissionId}?t=${Date.now()}`;
+        }
       }
+
       this.loading = false;
-      // Call the success callback if provided
+
+      // Call success callback
       if (this.onsuccess && typeof this.onsuccess === 'function') {
         this.onsuccess();
       }
+
       m.redraw();
-    }).catch(error => {
-      // The `error` object from m.request is an Error instance.
-      // The server's JSON response is in `error.response`.
+    } catch (error) {
       const responseBody = error.response || error;
 
       if (responseBody && typeof responseBody === 'object' && responseBody.error) {
         let errorMessage = responseBody.error;
-        
-        // If the backend sends validation details, append them.
-        // Mongoose validation `errors` is an object, so we use Object.values.
+
         if (responseBody.details && typeof responseBody.details === 'object') {
           const messages = Object.values(responseBody.details).map(detail => detail.message).join(', ');
           if (messages) errorMessage += `: ${messages}`;
@@ -236,11 +334,12 @@ export default {
       } else {
         this.error = this.editMode ? 'Gagal memperbarui data' : 'Gagal mengirim data';
       }
+
       this.loading = false;
       m.redraw();
-    });
+    }
   },
-  
+
   resetForm() {
     this.tps = '';
     this.totalVotes = '';
@@ -249,13 +348,16 @@ export default {
     this.photoBase64 = null;
     this.photoPreview = null;
     this.photoMime = null;
+    this.photoProcessing = false;
+    this.photoChanged = false;
+    this.hasExistingPhoto = false;
     this.latitude = '';
     this.longitude = '';
-    
+
     const fileInput = document.querySelector('#photo');
     if (fileInput) fileInput.value = '';
   },
-  
+
   view() {
     return m('form', {
       onsubmit: e => {
@@ -263,18 +365,20 @@ export default {
         this.submit();
       }
     }, [
-      // Show edit mode indicator
-      this.editMode && m('div', { style: { marginBottom: '1rem', padding: '0.5rem', backgroundColor: '#e3f2fd', borderRadius: '4px' } }, [
-        m('strong', 'Mode Edit - Memperbarui data submission'),
-        m('br'),
-        m('button', {
-          type: 'button',
-          class: 'secondary',
-          style: { marginTop: '0.5rem' },
-          onclick: () => m.route.set('/app/dashboard')
-        }, 'Kembali ke Dashboard')
+      // Edit mode indicator
+      this.editMode && m('div', {
+        style: {
+          marginBottom: '1rem',
+          padding: '0.5rem',
+          backgroundColor: '#e3f2fd',
+          borderRadius: '4px',
+          textAlign: 'center'
+        }
+      }, [
+        m('strong', 'Mode Edit - Memperbarui data submission')
       ]),
-      
+
+      // Village field
       !this.hideFields.includes('village') && [
         m('label', { for: 'village' }, i18n.village),
         m('input', {
@@ -285,7 +389,8 @@ export default {
           required: true
         })
       ],
-      
+
+      // District field
       !this.hideFields.includes('district') && [
         m('label', { for: 'district' }, i18n.district),
         m('input', {
@@ -296,7 +401,8 @@ export default {
           required: true
         })
       ],
-      
+
+      // TPS field
       m('label', { for: 'tps' }, i18n.tps),
       m('input', {
         id: 'tps',
@@ -305,7 +411,8 @@ export default {
         oninput: e => { this.tps = e.target.value; },
         required: true
       }),
-      
+
+      // Total votes field
       m('label', { for: 'totalVotes' }, i18n.totalVotes),
       m('input', {
         id: 'totalVotes',
@@ -314,7 +421,8 @@ export default {
         oninput: e => { this.totalVotes = e.target.value; },
         required: true
       }),
-      
+
+      // Caleg votes field
       m('label', { for: 'calegVotes' }, i18n.calegVotes),
       m('input', {
         id: 'calegVotes',
@@ -323,17 +431,36 @@ export default {
         oninput: e => { this.calegVotes = e.target.value; },
         required: true
       }),
-      
-      m('label', { for: 'photo' }, i18n.photo),
+
+      // Photo field
+      m('label', { for: 'photo' }, i18n.photo + (this.editMode ? ' (Kosongkan jika tidak ingin mengubah)' : '')),
       m('input', {
         id: 'photo',
         type: 'file',
         accept: 'image/*',
         onchange: e => this.handleFileUpload(e),
-        required: !this.editMode // Only required for new submissions
+        required: !this.editMode
       }),
-      
-      this.photoPreview && m('img', {
+
+      // Show existing photo status in edit mode
+      this.editMode && !this.photoChanged && this.hasExistingPhoto && m('div', {
+        style: { marginTop: '0.5rem', padding: '0.5rem', backgroundColor: '#f5f5f5', borderRadius: '4px' }
+      }, [
+        m('small', 'Foto saat ini:'),
+        m('br'),
+        m('img', {
+          src: this.photoPreview,
+          style: { maxWidth: '100px', maxHeight: '100px', marginTop: '0.5rem' },
+          alt: 'Foto saat ini',
+          onerror: (e) => {
+            console.error('Failed to load existing photo');
+            e.target.style.display = 'none';
+          }
+        })
+      ]),
+
+      // Show photo preview for new/changed photos
+      this.photoPreview && (this.photoChanged || !this.editMode) && m('img', {
         src: this.photoPreview,
         style: {
           maxWidth: '100%',
@@ -343,7 +470,13 @@ export default {
         },
         alt: 'Pratinjau Foto'
       }),
-      
+
+      // Processing indicator
+      this.photoProcessing && m('div', {
+        style: { marginTop: '0.5rem', color: '#666' }
+      }, 'Memproses gambar...'),
+
+      // Location section
       m('div', [
         m('label', 'Lokasi GPS'),
         m('button', {
@@ -352,13 +485,17 @@ export default {
         }, 'Dapatkan Lokasi'),
         this.latitude && this.longitude && m('p', `Lat: ${this.latitude}, Lng: ${this.longitude}`)
       ]),
-      
-      m('button[type=submit]', { disabled: this.loading }, 
-        this.loading 
-          ? (this.editMode ? 'Memperbarui...' : 'Mengirim...') 
+
+      // Submit button
+      m('button[type=submit]', {
+        disabled: this.loading || this.photoProcessing
+      },
+        this.loading
+          ? (this.editMode ? 'Memperbarui...' : 'Mengirim...')
           : (this.editMode ? 'Perbarui Data' : i18n.submit)
       ),
-      
+
+      // Messages
       this.success && m('div.success', this.success),
       this.error && m('div.error', this.error)
     ]);

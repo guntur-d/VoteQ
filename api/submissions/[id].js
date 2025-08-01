@@ -1,133 +1,121 @@
-// /api/submissions/[id].js - Get/update specific submission
+// pages/api/submissions/[id].js - Fixed Photo Update Logic
 import dbConnect from '../../lib/db.js';
 import Submission from '../../lib/models/Submission.js';
-import Volunteer from '../../lib/models/Volunteer.js'; // Import to register schema
 import { requireAuth } from '../../lib/auth.js';
-import sharp from 'sharp';
 
 export default async function handler(req, res) {
   await dbConnect();
   
-  const user = requireAuth(req, res);
-  if (!user) return;
-  
   const { id } = req.query;
-  
+
   if (req.method === 'GET') {
     try {
-      console.log('[SUBMISSION][GET] User ID:', user.id);
-      console.log('[SUBMISSION][GET] User Role:', user.role);
-      console.log('[SUBMISSION][GET] Submission ID:', id);
-      
-      let submission;
-      if (user.role === 'admin') {
-        // For admin, find submission without populate to avoid schema issues
-        submission = await Submission.findById(id);
-      } else {
-        // Try both volunteer and volunteerId fields for compatibility
-        submission = await Submission.findOne({ 
-          _id: id, 
-          $or: [
-            { volunteer: user.id },
-            { volunteerId: user.id }
-          ]
-        });
-      }
-      
-      console.log('[SUBMISSION][GET] Found submission:', submission ? 'Yes' : 'No');
-      if (submission) {
-        console.log('[SUBMISSION][GET] Submission volunteer:', submission.volunteer);
-        console.log('[SUBMISSION][GET] Submission volunteerId:', submission.volunteerId);
-        console.log('[SUBMISSION][GET] Submission data keys:', Object.keys(submission.toObject()));
-      } else {
-        // Let's see what submissions exist for this user
-        const allUserSubmissions = await Submission.find({ 
-          $or: [
-            { volunteer: user.id },
-            { volunteerId: user.id }
-          ]
-        }).select('_id volunteer volunteerId tps tpsNumber');
-        console.log('[SUBMISSION][GET] All user submissions:', allUserSubmissions);
-        
-        // Also try to find this specific submission regardless of user
-        const anySubmission = await Submission.findById(id).select('_id volunteer volunteerId tps tpsNumber');
-        console.log('[SUBMISSION][GET] Submission exists (any user):', anySubmission);
-      }
-      
+      const submission = await Submission.findById(id);
       if (!submission) {
         return res.status(404).json({ error: 'Submission not found' });
       }
-
-      // Convert to a plain object to manipulate it
-      const submissionObject = submission.toObject();
       
-      // Add a hasPhoto flag and remove the large buffer from the response for efficiency
-      submissionObject.hasPhoto = !!(submissionObject.photo && submissionObject.photo.length > 0);
-      delete submissionObject.photo;
-      delete submissionObject.photoMime;
+      // Convert binary photo to hasPhoto flag for frontend
+      const submissionData = submission.toObject();
+      if (submission.photo && submission.photo.length > 0) {
+        submissionData.hasPhoto = true;
+        // Don't send the actual photo data in the response, just the flag
+        delete submissionData.photo;
+      }
       
-      res.status(200).json(submissionObject);
-    } catch (err) {
-      console.error('[SUBMISSION][GET] Error:', err);
+      res.status(200).json(submissionData);
+    } catch (error) {
+      console.error('Error fetching submission:', error);
       res.status(500).json({ error: 'Failed to fetch submission' });
     }
-  } else if (req.method === 'PUT') {
+  }
+  
+  else if (req.method === 'PUT') {
     try {
-      // Destructure all updatable fields from the request body
-      const {
-        tps,
-        totalVotes,
-        calegVotes,
-        latitude,
-        longitude,
-        photoBase64, // For optional photo update
-        photoContentType
-      } = req.body;
-
-      // Build the update object dynamically
-      const updateData = { tps, totalVotes, calegVotes };
-
-      // Handle location update
-      if (latitude && longitude) {
-        updateData.location = {
-          type: 'Point',
-          coordinates: [parseFloat(longitude), parseFloat(latitude)],
-        };
-      }
-
-      // Handle optional photo update
-      if (photoBase64 && photoContentType) {
-        let photoBuffer = await sharp(Buffer.from(photoBase64, 'base64'))
-          .resize({ width: 1024, withoutEnlargement: true })
-          .jpeg({ quality: 70 })
-          .toBuffer();
-        // You can add the size check and re-compression logic here too if needed
-        updateData.photo = photoBuffer;
-        updateData.photoMime = photoContentType;
+      // Require authentication for updates
+      const user = requireAuth(req, res);
+      if (!user) return; // requireAuth already sent error response
+      
+      const updateData = { ...req.body };
+      
+      // Handle photo update logic
+      if (updateData.photoBase64) {
+        console.log('[API] Processing photo update...');
+        
+        // Extract base64 data and content type
+        const base64String = updateData.photoBase64;
+        let contentType, base64Data;
+        
+        if (base64String.startsWith('data:')) {
+          // Format: data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ...
+          const [header, data] = base64String.split(',');
+          contentType = header.match(/:(.*?);/)[1];
+          base64Data = data;
+        } else {
+          // Assume it's just the base64 data without header
+          base64Data = base64String;
+          contentType = 'image/jpeg'; // Default fallback
+        }
+        
+        // Convert base64 to Buffer
+        const binaryData = Buffer.from(base64Data, 'base64');
+        
+        updateData.photo = binaryData;
+        updateData.photoMime = contentType;
+        
+        console.log(`[API] Photo processed: ${contentType}, ${binaryData.length} bytes`);
+      } else if (updateData.removePhoto === true) {
+        console.log('[API] Removing photo...');
+        updateData.photo = null;
+        updateData.photoMime = null;
       }
       
-      // Define the query to ensure users can only update their own submissions (unless admin)
-      const query = user.role === 'admin' ? { _id: id } : { _id: id, volunteer: user.id };
+      // Clean up temporary fields
+      delete updateData.photoBase64;
+      delete updateData.removePhoto;
       
-      const submission = await Submission.findOneAndUpdate(
-        query,
-        { $set: updateData }, // Use $set to update only provided fields
-        { new: true, runValidators: true } // Return the updated doc and run schema validation
+      // Update the submission
+      const updatedSubmission = await Submission.findByIdAndUpdate(
+        id,
+        updateData,
+        { new: true, runValidators: true }
       );
       
-      if (!submission) {
-        return res.status(404).json({ error: 'Submission not found or you do not have permission to edit it.' });
+      if (!updatedSubmission) {
+        return res.status(404).json({ error: 'Submission not found' });
       }
       
-      res.status(200).json({ success: true, message: 'Submission updated successfully', data: submission });
-    } catch (err) {
-      console.error(`[SUBMISSION][PUT][${id}] Error updating submission:`, err);
-      if (err.name === 'ValidationError') {
-        return res.status(400).json({ error: 'Validation failed', details: err.errors });
+      // Return response without binary photo data
+      const responseData = updatedSubmission.toObject();
+      if (responseData.photo) {
+        responseData.hasPhoto = true;
+        delete responseData.photo; // Don't send binary data back
       }
+      
+      console.log('[API] Submission updated successfully');
+      res.status(200).json(responseData);
+      
+    } catch (error) {
+      console.error('Error updating submission:', error);
+      
+      // Handle validation errors
+      if (error.name === 'ValidationError') {
+        const validationErrors = {};
+        for (let field in error.errors) {
+          validationErrors[field] = error.errors[field].message;
+        }
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: validationErrors
+        });
+      }
+      
       res.status(500).json({ error: 'Failed to update submission' });
     }
-  } else {
-    res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  else {
+    res.setHeader('Allow', ['GET', 'PUT']);
+    res.status(405).json({ error: `Method ${req.method} not allowed` });
   }
 }

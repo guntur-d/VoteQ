@@ -229,11 +229,26 @@ var SubmissionForm_default = {
   editMode: false,
   submissionId: null,
   prefillData: null,
-  // Store prefill data
+  areaData: { kecamatanList: [], desaList: [] },
+  // Photo handling state
+  photoBase64: null,
+  photoMime: null,
+  photoProcessing: false,
+  photoChanged: false,
+  hasExistingPhoto: false,
   async oninit(vnode) {
-    this.submissionId = vnode.attrs.id;
-    this.editMode = !!this.submissionId;
-    if (vnode.attrs && vnode.attrs.prefill) {
+    this.onsuccess = vnode.attrs.onsuccess;
+    this.hideFields = vnode.attrs.hideFields || [];
+    this.areaData = vnode.attrs.areaData || { kecamatanList: [], desaList: [] };
+    if (vnode.attrs.submission) {
+      this.editMode = true;
+      this.submissionId = vnode.attrs.submission._id;
+      this.populateForm(vnode.attrs.submission);
+    } else if (vnode.attrs.id) {
+      this.editMode = true;
+      this.submissionId = vnode.attrs.id;
+      await this.fetchSubmissionData();
+    } else if (vnode.attrs.prefill) {
       this.prefillData = vnode.attrs.prefill;
       this.village = vnode.attrs.prefill.village || "";
       this.district = vnode.attrs.prefill.district || "";
@@ -242,24 +257,51 @@ var SubmissionForm_default = {
       this.kecamatanCode = vnode.attrs.prefill.kecamatanCode || "";
       this.kelurahanDesaCode = vnode.attrs.prefill.kelurahanDesaCode || "";
       this.tps = vnode.attrs.prefill.tps || "";
-      if (vnode.attrs.prefill.photoUrl) {
-        this.photoPreview = vnode.attrs.prefill.photoUrl;
-      }
+    }
+  },
+  onupdate(vnode) {
+    if (vnode.attrs.submission && vnode.attrs.submission._id !== this.submissionId) {
+      this.editMode = true;
+      this.submissionId = vnode.attrs.submission._id;
+      this.areaData = vnode.attrs.areaData || { kecamatanList: [], desaList: [] };
+      this.populateForm(vnode.attrs.submission);
+      m.redraw();
+    }
+  },
+  populateForm(response) {
+    console.log("SubmissionForm: populateForm called with:", response);
+    this.photoChanged = false;
+    this.photoBase64 = null;
+    this.photoMime = null;
+    this.photo = null;
+    this.hasExistingPhoto = false;
+    this.tps = response.tps || response.tpsNumber || "";
+    this.totalVotes = response.totalVotes || response.votes || "";
+    this.calegVotes = response.calegVotes || "";
+    if (response.location && response.location.coordinates && response.location.coordinates.length === 2) {
+      this.longitude = response.location.coordinates[0];
+      this.latitude = response.location.coordinates[1];
+    } else if (response.latitude && response.longitude) {
+      this.latitude = response.latitude;
+      this.longitude = response.longitude;
+    }
+    this.provinsiCode = response.provinsiCode || "";
+    this.kabupatenKotaCode = response.kabupatenKotaCode || "";
+    this.kecamatanCode = response.kecamatanCode || "";
+    this.kelurahanDesaCode = response.kelurahanDesaCode || "";
+    const kec = this.areaData.kecamatanList.find((k) => k.code === this.kecamatanCode);
+    this.district = kec?.name || response.district || this.kecamatanCode || "N/A";
+    const desa = this.areaData.desaList.find((d) => d.code === this.kelurahanDesaCode);
+    this.village = desa?.name || response.village || this.kelurahanDesaCode || "N/A";
+    if (response.hasPhoto || response.photo || response.photoMime) {
+      this.hasExistingPhoto = true;
+      this.photoPreview = `/api/submissions/photo/${response._id || this.submissionId}?t=${Date.now()}`;
+      console.log("SubmissionForm: Set photo preview:", this.photoPreview);
     } else {
-      this.village = m.route.param("village") || "";
-      this.district = m.route.param("district") || "";
-      const photoParam = m.route.param("photoUrl") || m.route.param("photo");
-      if (photoParam) {
-        this.photoPreview = photoParam;
-      }
+      this.hasExistingPhoto = false;
+      this.photoPreview = null;
     }
-    if (vnode.attrs && vnode.attrs.hideFields) {
-      this.hideFields = vnode.attrs.hideFields;
-    }
-    this.onsuccess = vnode.attrs.onsuccess;
-    if (this.editMode) {
-      await this.fetchSubmissionData();
-    }
+    m.redraw();
   },
   async fetchSubmissionData() {
     try {
@@ -271,26 +313,8 @@ var SubmissionForm_default = {
           Authorization: "Bearer " + localStorage.getItem("token")
         }
       });
-      this.tps = response.tps || response.tpsNumber || "";
-      if (response.village)
-        this.village = response.village;
-      if (response.district)
-        this.district = response.district;
-      this.totalVotes = response.totalVotes || response.votes || "";
-      this.calegVotes = response.calegVotes || "";
-      if (response.location && response.location.coordinates && response.location.coordinates.length === 2) {
-        this.longitude = response.location.coordinates[0];
-        this.latitude = response.location.coordinates[1];
-      } else if (response.latitude && response.longitude) {
-        this.latitude = response.latitude;
-        this.longitude = response.longitude;
-      }
-      this.provinsiCode = response.provinsiCode || "";
-      this.kabupatenKotaCode = response.kabupatenKotaCode || "";
-      this.kecamatanCode = response.kecamatanCode || "";
-      this.kelurahanDesaCode = response.kelurahanDesaCode || "";
-      if (response.hasPhoto) {
-        this.photoPreview = `/api/submissions/photo/${this.submissionId}`;
+      if (response) {
+        this.populateForm(response);
       }
     } catch (error) {
       console.error("Error fetching submission data:", error);
@@ -314,24 +338,53 @@ var SubmissionForm_default = {
       );
     }
   },
-  handleFileUpload(e) {
+  async handleFileUpload(e) {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        this.photoPreview = ev.target.result;
-        this.photoBase64 = ev.target.result.split(",")[1];
-        this.photoMime = file.type;
-        m.redraw();
-      };
-      reader.readAsDataURL(file);
-      this.photo = file;
-    } else {
+    console.log("[PHOTO] File selected:", file?.name || "No file");
+    if (!file) {
+      this.photo = null;
       this.photoBase64 = null;
       this.photoMime = null;
-      this.photo = null;
-      this.photoPreview = null;
+      this.photoProcessing = false;
+      this.photoChanged = true;
+      if (this.editMode) {
+        this.photoPreview = null;
+        this.hasExistingPhoto = false;
+      }
+      m.redraw();
+      return;
     }
+    this.photo = file;
+    this.photoProcessing = true;
+    this.photoChanged = true;
+    this.photoBase64 = null;
+    this.photoPreview = URL.createObjectURL(file);
+    m.redraw();
+    console.log("[PHOTO] Started Base64 conversion...");
+    try {
+      const dataUrl = await this.fileToBase64(file);
+      this.photoBase64 = dataUrl.split(",")[1];
+      this.photoMime = file.type;
+      this.photoProcessing = false;
+      console.log("[PHOTO] Base64 conversion completed");
+      m.redraw();
+    } catch (error) {
+      console.error("[PHOTO] Conversion error:", error);
+      this.error = "Gagal memproses file gambar.";
+      this.photo = null;
+      this.photoBase64 = null;
+      this.photoProcessing = false;
+      this.photoChanged = false;
+      m.redraw();
+    }
+  },
+  fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (error) => reject(error);
+    });
   },
   async submit() {
     this.loading = true;
@@ -343,8 +396,14 @@ var SubmissionForm_default = {
       m.redraw();
       return;
     }
+    if (this.photo && this.photoProcessing) {
+      this.error = "Gambar masih diproses, mohon tunggu...";
+      this.loading = false;
+      m.redraw();
+      return;
+    }
     if (this.photo && !this.photoBase64) {
-      this.error = "Gambar masih diproses, mohon tunggu.";
+      this.error = "Gambar gagal diproses. Silakan unggah ulang.";
       this.loading = false;
       m.redraw();
       return;
@@ -368,31 +427,43 @@ var SubmissionForm_default = {
       latitude: this.latitude,
       longitude: this.longitude
     };
-    if (this.photoBase64) {
-      payload.photoBase64 = this.photoBase64;
-      payload.photoContentType = this.photoMime;
+    if (this.photoChanged) {
+      if (this.photoBase64) {
+        payload.photoBase64 = `data:${this.photoMime};base64,${this.photoBase64}`;
+        console.log("[SUBMIT] Including new photo in payload");
+      } else if (!this.photo && this.editMode) {
+        payload.removePhoto = true;
+        console.log("[SUBMIT] Removing photo in edit mode");
+      }
     }
     const url = this.editMode ? `/api/submissions/${this.submissionId}` : "/api/submissions";
     const method = this.editMode ? "PUT" : "POST";
-    m.request({
-      method,
-      url,
-      body: payload,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + localStorage.getItem("token")
-      }
-    }).then((response) => {
+    console.log(`Submitting to ${method} ${url}`, payload);
+    try {
+      const response = await m.request({
+        method,
+        url,
+        body: payload,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + localStorage.getItem("token")
+        }
+      });
       this.success = this.editMode ? "Data berhasil diperbarui!" : "Data berhasil dikirim!";
       if (!this.editMode) {
         this.resetForm();
+      } else {
+        this.photoChanged = false;
+        if (this.hasExistingPhoto || this.photoBase64) {
+          this.photoPreview = `/api/submissions/photo/${this.submissionId}?t=${Date.now()}`;
+        }
       }
       this.loading = false;
       if (this.onsuccess && typeof this.onsuccess === "function") {
         this.onsuccess();
       }
       m.redraw();
-    }).catch((error) => {
+    } catch (error) {
       const responseBody = error.response || error;
       if (responseBody && typeof responseBody === "object" && responseBody.error) {
         let errorMessage = responseBody.error;
@@ -407,7 +478,7 @@ var SubmissionForm_default = {
       }
       this.loading = false;
       m.redraw();
-    });
+    }
   },
   resetForm() {
     this.tps = "";
@@ -417,6 +488,9 @@ var SubmissionForm_default = {
     this.photoBase64 = null;
     this.photoPreview = null;
     this.photoMime = null;
+    this.photoProcessing = false;
+    this.photoChanged = false;
+    this.hasExistingPhoto = false;
     this.latitude = "";
     this.longitude = "";
     const fileInput = document.querySelector("#photo");
@@ -430,17 +504,19 @@ var SubmissionForm_default = {
         this.submit();
       }
     }, [
-      // Show edit mode indicator
-      this.editMode && m("div", { style: { marginBottom: "1rem", padding: "0.5rem", backgroundColor: "#e3f2fd", borderRadius: "4px" } }, [
-        m("strong", "Mode Edit - Memperbarui data submission"),
-        m("br"),
-        m("button", {
-          type: "button",
-          class: "secondary",
-          style: { marginTop: "0.5rem" },
-          onclick: () => m.route.set("/app/dashboard")
-        }, "Kembali ke Dashboard")
+      // Edit mode indicator
+      this.editMode && m("div", {
+        style: {
+          marginBottom: "1rem",
+          padding: "0.5rem",
+          backgroundColor: "#e3f2fd",
+          borderRadius: "4px",
+          textAlign: "center"
+        }
+      }, [
+        m("strong", "Mode Edit - Memperbarui data submission")
       ]),
+      // Village field
       !this.hideFields.includes("village") && [
         m("label", { for: "village" }, i18n.village),
         m("input", {
@@ -451,6 +527,7 @@ var SubmissionForm_default = {
           required: true
         })
       ],
+      // District field
       !this.hideFields.includes("district") && [
         m("label", { for: "district" }, i18n.district),
         m("input", {
@@ -461,6 +538,7 @@ var SubmissionForm_default = {
           required: true
         })
       ],
+      // TPS field
       m("label", { for: "tps" }, i18n.tps),
       m("input", {
         id: "tps",
@@ -471,6 +549,7 @@ var SubmissionForm_default = {
         },
         required: true
       }),
+      // Total votes field
       m("label", { for: "totalVotes" }, i18n.totalVotes),
       m("input", {
         id: "totalVotes",
@@ -481,6 +560,7 @@ var SubmissionForm_default = {
         },
         required: true
       }),
+      // Caleg votes field
       m("label", { for: "calegVotes" }, i18n.calegVotes),
       m("input", {
         id: "calegVotes",
@@ -491,16 +571,33 @@ var SubmissionForm_default = {
         },
         required: true
       }),
-      m("label", { for: "photo" }, i18n.photo),
+      // Photo field
+      m("label", { for: "photo" }, i18n.photo + (this.editMode ? " (Kosongkan jika tidak ingin mengubah)" : "")),
       m("input", {
         id: "photo",
         type: "file",
         accept: "image/*",
         onchange: (e) => this.handleFileUpload(e),
         required: !this.editMode
-        // Only required for new submissions
       }),
-      this.photoPreview && m("img", {
+      // Show existing photo status in edit mode
+      this.editMode && !this.photoChanged && this.hasExistingPhoto && m("div", {
+        style: { marginTop: "0.5rem", padding: "0.5rem", backgroundColor: "#f5f5f5", borderRadius: "4px" }
+      }, [
+        m("small", "Foto saat ini:"),
+        m("br"),
+        m("img", {
+          src: this.photoPreview,
+          style: { maxWidth: "100px", maxHeight: "100px", marginTop: "0.5rem" },
+          alt: "Foto saat ini",
+          onerror: (e) => {
+            console.error("Failed to load existing photo");
+            e.target.style.display = "none";
+          }
+        })
+      ]),
+      // Show photo preview for new/changed photos
+      this.photoPreview && (this.photoChanged || !this.editMode) && m("img", {
         src: this.photoPreview,
         style: {
           maxWidth: "100%",
@@ -510,6 +607,11 @@ var SubmissionForm_default = {
         },
         alt: "Pratinjau Foto"
       }),
+      // Processing indicator
+      this.photoProcessing && m("div", {
+        style: { marginTop: "0.5rem", color: "#666" }
+      }, "Memproses gambar..."),
+      // Location section
       m("div", [
         m("label", "Lokasi GPS"),
         m("button", {
@@ -518,11 +620,15 @@ var SubmissionForm_default = {
         }, "Dapatkan Lokasi"),
         this.latitude && this.longitude && m("p", `Lat: ${this.latitude}, Lng: ${this.longitude}`)
       ]),
+      // Submit button
       m(
         "button[type=submit]",
-        { disabled: this.loading },
+        {
+          disabled: this.loading || this.photoProcessing
+        },
         this.loading ? this.editMode ? "Memperbarui..." : "Mengirim..." : this.editMode ? "Perbarui Data" : i18n.submit
       ),
+      // Messages
       this.success && m("div.success", this.success),
       this.error && m("div.error", this.error)
     ]);
@@ -1209,8 +1315,13 @@ var AdminPanel_default = {
   itemsPerPage: 20,
   // You can adjust this value
   totalPages: 1,
-  // Granular loading states
-  loadingInitial: true,
+  // Granular loading states for each section
+  loading: {
+    initial: true,
+    users: false,
+    submissions: false,
+    summary: false
+  },
   loadingUsers: false,
   loadingSubmissions: false,
   error: "",
@@ -1224,6 +1335,13 @@ var AdminPanel_default = {
   isDetailsModalOpen: false,
   detailsModalTitle: "",
   submissionsForModal: [],
+  // Add state for edit modal
+  isEditModalOpen: false,
+  editingSubmission: null,
+  // Will hold the full submission object
+  // Add loading states for individual submissions
+  submissionLoadingStates: {},
+  // Will track loading state for each submission ID
   // Add area data for displaying names instead of codes
   areaData: {
     kecamatanList: [],
@@ -1243,10 +1361,10 @@ var AdminPanel_default = {
       m.route.set("/app/dashboard");
       return;
     }
-    this.loadInitialData();
+    this.loadDashboardData();
   },
-  async loadInitialData() {
-    this.loadingInitial = true;
+  async loadDashboardData() {
+    this.loading.initial = true;
     this.error = "";
     m.redraw();
     try {
@@ -1255,33 +1373,31 @@ var AdminPanel_default = {
         this.loadSubmissions(),
         this.loadAreaData()
       ]);
-      this.unverifiedUsers = users;
-      this.allSubmissions = submissions;
-      this.areaData = areaData;
+      this.unverifiedUsers = users || [];
+      this.allSubmissions = submissions || [];
+      this.areaData = areaData || { kecamatanList: [], desaList: [] };
       this.totalPages = Math.ceil(this.allSubmissions.length / this.itemsPerPage);
       this.calculateVoteSummary(this.allSubmissions);
-    } catch (err) {
-      this.error = "Gagal memuat data dashboard.";
-      console.error("Error loading initial dashboard data:", err);
     } finally {
-      this.loadingInitial = false;
+      this.loading.initial = false;
       m.redraw();
     }
   },
   async refreshUsers() {
-    this.loadingUsers = true;
+    this.loading.users = true;
     m.redraw();
     try {
       this.unverifiedUsers = await this.loadUnverifiedUsers();
     } catch (err) {
-      this.error = "Gagal memuat pengguna belum terverifikasi.";
+      this.error = "Gagal memuat pengguna.";
     } finally {
-      this.loadingUsers = false;
+      this.loading.users = false;
       m.redraw();
     }
   },
   async refreshSubmissionsAndSummary() {
-    this.loadingSubmissions = true;
+    this.loading.submissions = true;
+    this.loading.summary = true;
     m.redraw();
     try {
       this.allSubmissions = await this.loadSubmissions();
@@ -1290,7 +1406,8 @@ var AdminPanel_default = {
     } catch (err) {
       this.error = "Gagal memuat data submission.";
     } finally {
-      this.loadingSubmissions = false;
+      this.loading.submissions = false;
+      this.loading.summary = false;
       m.redraw();
     }
   },
@@ -1567,8 +1684,8 @@ var AdminPanel_default = {
           class: "outline secondary",
           style: { margin: 0, padding: "0.25rem 0.75rem" },
           onclick: () => this.refreshUsers(),
-          disabled: this.loadingUsers
-        }, this.loadingUsers ? "Memuat..." : "\u{1F504} Refresh")
+          "aria-busy": this.loading.users ? "true" : "false"
+        }, this.loading.users ? "Memuat..." : "\u{1F504} Refresh")
       ]),
       this.unverifiedUsers.length === 0 ? m("p", "Tidak ada pengguna yang perlu diverifikasi") : m("table", [
         m("thead", m("tr", [
@@ -1598,8 +1715,8 @@ var AdminPanel_default = {
           class: "outline secondary",
           style: { margin: 0, padding: "0.25rem 0.75rem" },
           onclick: () => this.refreshSubmissionsAndSummary(),
-          disabled: this.loadingSubmissions
-        }, this.loadingSubmissions ? "Memuat..." : "\u{1F504} Refresh")
+          "aria-busy": this.loading.submissions ? "true" : "false"
+        }, this.loading.submissions ? "Memuat..." : "\u{1F504} Refresh")
       ]),
       this.allSubmissions.length === 0 ? m("p", "Belum ada submission") : m("table", [
         m("thead", m("tr", [
@@ -1616,6 +1733,8 @@ var AdminPanel_default = {
         m("tbody", this.getPaginatedSubmissions().map((sub) => {
           const kecamatanName = this._getResolvedAreaName("kecamatan", sub);
           const desaName = this._getResolvedAreaName("desa", sub);
+          const isApproving = this.submissionLoadingStates[sub._id]?.approving;
+          const isFlagging = this.submissionLoadingStates[sub._id]?.flagging;
           return m("tr", [
             m("td", sub.volunteerDisplayName || "Unknown"),
             m("td", sub.tps || sub.tpsNumber),
@@ -1631,17 +1750,99 @@ var AdminPanel_default = {
               title: "Lihat Peta",
               class: "outline secondary",
               style: { margin: 0, padding: "0.25rem 0.5rem", fontSize: "1.1rem", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }
-            }, "\u{1F4CD}") : m("span", ""))
+            }, "\u{1F4CD}") : m("span", { style: { color: "#999" } }, "\u274C")),
+            m("td", sub.status || "-"),
+            m("td", [
+              m("button", {
+                onclick: () => this.openEditModal(sub._id),
+                class: "outline secondary",
+                style: { marginRight: "0.5rem", padding: "0.25rem 0.5rem" },
+                title: "Edit"
+              }, "\u270F\uFE0F"),
+              sub.status !== "approved" && m("button", {
+                onclick: () => this.approveSubmission(sub._id),
+                style: { marginRight: "0.5rem" },
+                disabled: isApproving || isFlagging,
+                "aria-busy": isApproving ? "true" : null
+              }, isApproving ? "Memproses..." : "Setujui"),
+              sub.status !== "flagged" && m("button", {
+                onclick: () => this.flagSubmission(sub._id),
+                class: "secondary",
+                style: { marginLeft: "0.5rem" },
+                disabled: isFlagging || isApproving,
+                "aria-busy": isFlagging ? "true" : null
+              }, isFlagging ? "Memproses..." : "Tandai")
+            ])
           ]);
         }))
+      ]),
+      this.renderPaginationControls()
+    ]);
+  },
+  // --- Edit Modal Methods ---
+  async openEditModal(submissionId) {
+    this.editingSubmissionId = submissionId;
+    this.editingSubmission = null;
+    if (this.areaData.kecamatanList.length === 0 || this.areaData.desaList.length === 0) {
+      await this.loadAreaData();
+    }
+    try {
+      const submission = await m.request({
+        method: "GET",
+        url: `/api/submissions/${submissionId}`,
+        headers: { Authorization: "Bearer " + localStorage.getItem("token") }
+      });
+      console.log("AdminPanel: Fetched submission data:", submission);
+      console.log("AdminPanel: Available areaData:", this.areaData);
+      this.editingSubmission = submission;
+    } catch (error) {
+      console.error("Error fetching submission data:", error);
+      this.error = "Failed to load submission data for editing";
+    }
+    this.isEditModalOpen = true;
+    m.redraw();
+  },
+  // Add method to refresh submissions and summary after edit
+  async refreshSubmissionsAndSummary() {
+    await this.loadSubmissions();
+    this.calculateVoteSummary(this.allSubmissions);
+    m.redraw();
+  },
+  closeEditModal() {
+    this.isEditModalOpen = false;
+    this.editingSubmissionId = null;
+    m.redraw();
+  },
+  renderEditModal() {
+    if (!this.isEditModalOpen)
+      return null;
+    return m("dialog", { open: true }, [
+      m("article", [
+        m(
+          "header",
+          m("a.close", {
+            href: "#",
+            "aria-label": "Close",
+            onclick: (e) => {
+              e.preventDefault();
+              this.closeEditModal();
+            }
+          })
+        ),
+        this.editingSubmission ? m(SubmissionForm_default, {
+          submission: this.editingSubmission,
+          // Pass the full submission object
+          areaData: this.areaData,
+          // Pass area data for name lookups
+          onsuccess: () => {
+            this.closeEditModal();
+            this.refreshSubmissionsAndSummary();
+          }
+        }) : m("div", { "aria-busy": "true" }, "Memuat data submission...")
       ])
     ]);
   },
-  getPaginatedSubmissions() {
-    const start = (this.currentPage - 1) * this.itemsPerPage;
-    const end = start + this.itemsPerPage;
-    return this.allSubmissions.slice(start, end);
-  },
+  // Add a method to handle photo viewing
   viewPhoto(submissionId) {
     window.open(`/api/submissions/photo/${submissionId}`, "_blank");
   },
@@ -1705,6 +1906,8 @@ var AdminPanel_default = {
             m("tbody", this.submissionsForModal.map((sub) => {
               const kecamatanName = this.areaData.kecamatanList.find((k) => k.code === sub.kecamatanCode)?.name || sub.district || sub.kecamatanCode || "N/A";
               const desaName = this.areaData.desaList.find((d) => d.code === sub.kelurahanDesaCode)?.name || sub.village || sub.kelurahanDesaCode || "N/A";
+              const isApproving = this.submissionLoadingStates[sub._id]?.approving;
+              const isFlagging = this.submissionLoadingStates[sub._id]?.flagging;
               return m("tr", [
                 m("td", sub.volunteerDisplayName || "Unknown"),
                 m("td", sub.tps || sub.tpsNumber),
@@ -1715,8 +1918,19 @@ var AdminPanel_default = {
                 m("td", sub.location && sub.location.coordinates ? m("button", { onclick: () => this.openMapModal(sub.location.coordinates), class: "outline secondary", style: { padding: "0.25rem 0.5rem" } }, "\u{1F4CD}") : "\u274C"),
                 m("td", sub.status || "-"),
                 m("td", [
-                  sub.status !== "approved" && m("button", { onclick: () => this.approveSubmission(sub._id), style: { marginRight: "0.5rem" } }, "Setujui"),
-                  sub.status !== "flagged" && m("button", { onclick: () => this.flagSubmission(sub._id), class: "secondary", style: { marginLeft: "0.5rem" } }, "Tandai")
+                  sub.status !== "approved" && m("button", {
+                    onclick: () => this.approveSubmission(sub._id),
+                    style: { marginRight: "0.5rem" },
+                    disabled: isApproving || isFlagging,
+                    "aria-busy": isApproving ? "true" : null
+                  }, isApproving ? "Memproses..." : "Setujui"),
+                  sub.status !== "flagged" && m("button", {
+                    onclick: () => this.flagSubmission(sub._id),
+                    class: "secondary",
+                    style: { marginLeft: "0.5rem" },
+                    disabled: isFlagging || isApproving,
+                    "aria-busy": isFlagging ? "true" : null
+                  }, isFlagging ? "Memproses..." : "Tandai")
                 ])
               ]);
             }))
@@ -1750,9 +1964,9 @@ var AdminPanel_default = {
         m("button", {
           class: "outline secondary",
           style: { margin: 0, padding: "0.25rem 0.75rem" },
-          onclick: () => this.loadDashboardData(),
-          disabled: this.loading
-        }, this.loading ? "Memuat..." : "\u{1F504} Refresh")
+          onclick: () => this.refreshSubmissionsAndSummary(),
+          "aria-busy": this.loading.summary ? "true" : "false"
+        }, this.loading.summary ? "Memuat..." : "\u{1F504} Refresh")
       ]),
       m("div.grid", [
         m("div", [
@@ -1808,105 +2022,13 @@ var AdminPanel_default = {
     ]);
   },
   renderDashboard() {
-    const filteredSummary = this.getFilteredVoteSummary();
-    const totalCalegVotes = Object.values(filteredSummary.byKecamatan).reduce((sum, data) => sum + data.calegVotes, 0);
-    const totalSahVotes = Object.values(filteredSummary.byKecamatan).reduce((sum, data) => sum + data.totalVotes, 0);
     return [
       m("h3", "Admin Dashboard"),
       this.error && m("div.error", this.error),
-      // Stats - Enhanced with vote totals from filtered data
-      m("div.grid", [
-        m("article", [
-          m("h4", "Pengguna Belum Terverifikasi"),
-          m("h2", this.unverifiedUsers.length)
-        ]),
-        m("article", [
-          m("h4", "Total Submission"),
-          m("h2", this.allSubmissions.length)
-        ]),
-        m("article", [
-          m("h4", "Total Suara Caleg"),
-          m("h2", { style: { color: "#2563eb" } }, totalCalegVotes.toLocaleString("id-ID"))
-        ]),
-        m("article", [
-          m("h4", "Total Suara Sah"),
-          m("h2", { style: { color: "#059669" } }, totalSahVotes.toLocaleString("id-ID"))
-        ])
-      ]),
-      // Unverified Users
-      m("section", [
-        m("h4", "Pengguna Belum Terverifikasi"),
-        this.unverifiedUsers.length === 0 ? m("p", "Tidak ada pengguna yang perlu diverifikasi") : m("table", [
-          m("thead", m("tr", [
-            m("th", "Nama"),
-            m("th", "No. HP"),
-            m("th", "Tanggal Daftar"),
-            m("th", "Aksi")
-          ])),
-          m("tbody", this.unverifiedUsers.map(
-            (user) => m("tr", [
-              m("td", user.fullName),
-              m("td", user.phoneNumber),
-              m("td", new Date(user.createdAt).toLocaleDateString("id-ID")),
-              m("td", m("button", {
-                onclick: () => this.verifyUser(user._id)
-              }, "Verifikasi"))
-            ])
-          ))
-        ])
-      ]),
-      // Recent Submissions (existing table)
-      m("section", [
-        m("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" } }, [
-          m("h4", { style: { margin: 0 } }, "Submission Terbaru"),
-          m("button", {
-            class: "outline secondary",
-            style: { margin: 0, padding: "0.25rem 0.75rem" },
-            onclick: () => this.loadDashboardData(),
-            disabled: this.loading
-          }, this.loading ? "Memuat..." : "\u{1F504} Refresh")
-        ]),
-        this.allSubmissions.length === 0 ? m("p", "Belum ada submission") : m("table", [
-          m("thead", m("tr", [
-            m("th", "Volunteer"),
-            m("th", "TPS"),
-            m("th", "Kecamatan"),
-            m("th", "Desa/Kelurahan"),
-            m("th", "Suara"),
-            m("th", "Foto"),
-            m("th", "GPS"),
-            m("th", "Status"),
-            m("th", "Aksi")
-          ])),
-          m("tbody", this.getPaginatedSubmissions().map((sub) => {
-            const kecamatanName = this._getResolvedAreaName("kecamatan", sub);
-            const desaName = this._getResolvedAreaName("desa", sub);
-            return m("tr", [
-              m("td", sub.volunteerDisplayName || "Unknown"),
-              m("td", sub.tps || sub.tpsNumber),
-              m("td", kecamatanName),
-              m("td", desaName),
-              m("td", `${sub.calegVotes || ""}/${sub.totalVotes || sub.votes || ""}`),
-              m("td", sub.hasPhoto ? m("button", {
-                onclick: () => this.viewPhoto(sub._id),
-                style: { fontSize: "12px", padding: "4px 8px", background: "#007bff", color: "white", border: "none", borderRadius: "3px", cursor: "pointer" }
-              }, "Lihat") : m("span", { style: { color: "#999" } }, "\u274C")),
-              m("td", sub.location && sub.location.coordinates && sub.location.coordinates.length === 2 ? m("button", {
-                onclick: () => this.openMapModal(sub.location.coordinates),
-                title: "Lihat Peta",
-                class: "outline secondary",
-                style: { margin: 0, padding: "0.25rem 0.5rem", fontSize: "1.1rem", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }
-              }, "\u{1F4CD}") : m("span", { style: { color: "#999" } }, "\u274C")),
-              m("td", sub.status || "-"),
-              m("td", [
-                sub.status !== "approved" && m("button", { onclick: () => this.approveSubmission(sub._id), style: { marginRight: "0.5rem" } }, "Setujui"),
-                sub.status !== "flagged" && m("button", { onclick: () => this.flagSubmission(sub._id), class: "secondary", style: { marginLeft: "0.5rem" } }, "Tandai")
-              ])
-            ]);
-          }))
-        ]),
-        this.renderPaginationControls()
-      ]),
+      this.renderStatsCards(),
+      this.renderUnverifiedUsersSection(),
+      this.renderSubmissionsSection(),
+      this.renderEditModal(),
       this.renderDetailsModal(),
       this.renderSummarySection(),
       this.renderMapModal()
@@ -1927,6 +2049,11 @@ var AdminPanel_default = {
     });
   },
   approveSubmission(submissionId) {
+    if (!this.submissionLoadingStates[submissionId]) {
+      this.submissionLoadingStates[submissionId] = {};
+    }
+    this.submissionLoadingStates[submissionId].approving = true;
+    m.redraw();
     return m.request({
       method: "POST",
       url: `/api/admin/approve/${submissionId}`,
@@ -1937,13 +2064,22 @@ var AdminPanel_default = {
         submission.status = "approved";
       }
       this.calculateVoteSummary(this.allSubmissions);
-      m.redraw();
     }).catch((err) => {
       console.error("Error approving submission:", err);
       this.error = "Failed to approve submission";
+    }).finally(() => {
+      if (this.submissionLoadingStates[submissionId]) {
+        this.submissionLoadingStates[submissionId].approving = false;
+      }
+      m.redraw();
     });
   },
   flagSubmission(submissionId) {
+    if (!this.submissionLoadingStates[submissionId]) {
+      this.submissionLoadingStates[submissionId] = {};
+    }
+    this.submissionLoadingStates[submissionId].flagging = true;
+    m.redraw();
     return m.request({
       method: "POST",
       url: `/api/admin/flag/${submissionId}`,
@@ -1954,10 +2090,14 @@ var AdminPanel_default = {
         submission.status = "flagged";
       }
       this.calculateVoteSummary(this.allSubmissions);
-      m.redraw();
     }).catch((err) => {
       console.error("Error flagging submission:", err);
       this.error = "Failed to flag submission";
+    }).finally(() => {
+      if (this.submissionLoadingStates[submissionId]) {
+        this.submissionLoadingStates[submissionId].flagging = false;
+      }
+      m.redraw();
     });
   },
   renderNavigation() {
@@ -1979,8 +2119,8 @@ var AdminPanel_default = {
     ]);
   },
   view() {
-    if (this.loading) {
-      return m("div", "Loading...");
+    if (this.loading.initial) {
+      return m("div.container-fluid", { style: { textAlign: "center", marginTop: "5rem" } }, m("span", { "aria-busy": "true" }, "Memuat..."));
     }
     return m("div.container-fluid", [
       m("h2", "Admin Panel"),
