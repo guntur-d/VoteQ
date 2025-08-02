@@ -1344,14 +1344,23 @@ var CalegSetting_default = {
   loading: false,
   error: "",
   oninit() {
+    this.loading = true;
     const token = localStorage.getItem("token");
     const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
     m.request({ method: "GET", url: "/api/caleg", headers: authHeader }).then((data) => {
       if (data && data.name) {
         this.caleg = data.name;
+        this.showEdit = false;
       } else {
+        this.caleg = "";
         this.showEdit = true;
       }
+      this.loading = false;
+      m.redraw();
+    }).catch(() => {
+      this.caleg = "";
+      this.showEdit = true;
+      this.loading = false;
       m.redraw();
     });
   },
@@ -1380,6 +1389,9 @@ var CalegSetting_default = {
   },
   view(vnode) {
     const hasSubmissions = vnode.attrs.hasSubmissions || false;
+    if (this.loading && !this.showEdit) {
+      return m("section", [m("p", "Memuat...")]);
+    }
     if (this.caleg && !this.showEdit) {
       return m("section", [
         m("h3", i18n.calegSetting || "Caleg"),
@@ -1411,7 +1423,9 @@ var CalegSetting_default = {
         }
       }, [
         m("label", { for: "caleg" }, i18n.calegName || "Nama Caleg"),
-        m("input[type=text][name=caleg][id=caleg][autocomplete=off]"),
+        m("input[type=text][name=caleg][id=caleg][autocomplete=off]", { value: this.caleg || "", oninput: (e) => {
+          this.caleg = e.target.value;
+        } }),
         m("button[type=submit]", { disabled: this.loading }, i18n.save || "Simpan"),
         this.error && m("div.error", this.error)
       ])
