@@ -214,8 +214,8 @@ app.get('/api/provinsi', async (request, reply) => {
 });
 
 // Wilayah: Kabupaten/Kota by Provinsi
-app.get('/api/kabupatenkota', async (request, reply) => {
-  const { provinsiCode } = request.query;
+app.post('/api/kabupatenkota', async (request, reply) => {
+  const { provinsiCode } = request.body || {};
   if (!provinsiCode) return reply.status(400).send({ error: 'provinsiCode is required' });
   const list = await KabupatenKota.find({ provinsiCode }, { _id: 0, code: 1, name: 1 });
   return reply.send(list);

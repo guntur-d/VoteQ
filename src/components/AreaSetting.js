@@ -16,10 +16,12 @@ export default {
     editSecret: '',
     editSecretError: '',
     oninit() {
+        console.log('AreaSetting oninit called');
         // Fetch provinsi list from API
         this.provinsiLoading = true;
         m.request({ method: 'GET', url: '/api/provinsi' })
             .then(data => {
+                console.log('Provinsi data:', data); // Add this
                 this.provinsiList = data;
                 this.provinsiLoading = false;
                 m.redraw();
@@ -59,7 +61,12 @@ export default {
                             m.redraw();
                         }
                     } else {
-                        this.areaSet = false;
+                        this.areaSet = false; //populate select options
+                        this.selectedProvinsi = '';
+                        this.selectedKabupaten = '';
+                        this.kabupatenList = [];    
+                        this.areaDisplay = '';
+                        m.redraw();
                     }
                 });
             }).catch(() => {
@@ -130,26 +137,35 @@ export default {
     view(vnode) {
         const hasSubmissions = vnode.attrs.hasSubmissions || false;
 
-        // Show only loading indicator before area setting has been fetched
-        if (this.provinsiLoading || this.selectedProvinsi === '' && !this.areaSet) {
+        // Only show loading when actually loading provinsi data
+        if (this.provinsiLoading) {
             return m('section', [m('p', 'Memuat...')]);
         }
 
+        // If area is set and not editing, show summary with edit button
         if (this.areaSet && !this.showEdit) {
-            // Show current area and edit button
             return m('section', [
                 m('h3', i18n.areaSetting || 'Pengaturan Area'),
                 m('div', [
                     m('strong', i18n.currentArea || 'Area Saat Ini:'), ' ',
-                    this.areaDisplay? m('span', this.areaDisplay) : m('span', 'memuat..')
+                    this.areaDisplay ? m('span', this.areaDisplay) : m('span', 'Area belum diatur.') 
                 ]),
-                m('button', { onclick: () => { this.showEdit = true; }, disabled: hasSubmissions }, i18n.editArea || 'Ubah Area'),
-                hasSubmissions && m('p', { style: { fontSize: '0.8rem', fontStyle: 'italic', marginTop: '0.5rem', color: 'var(--pico-color-red-500)' } },
-                  'Pengaturan tidak dapat diubah karena sudah ada data suara yang masuk.'
-                )
+                m('button', { 
+                    onclick: () => { this.showEdit = true; }, 
+                    disabled: hasSubmissions 
+                }, i18n.editArea || 'Ubah Area'),
+                hasSubmissions && m('p', { 
+                    style: { 
+                        fontSize: '0.8rem', 
+                        fontStyle: 'italic', 
+                        marginTop: '0.5rem', 
+                        color: 'var(--pico-color-red-500)' 
+                    } 
+                }, 'Pengaturan tidak dapat diubah karena sudah ada data suara yang masuk.')
             ]);
         }
-        // Show select area form
+        
+        // Show select area form (when area is not set OR when editing)
         return m('section', [
             m('h3', i18n.areaSetting || 'Pengaturan Area'),
             m('form', {
@@ -168,12 +184,8 @@ export default {
                     value: this.selectedProvinsi,
                     disabled: this.provinsiLoading
                 }, [
-                    this.provinsiLoading
-                        ? m('option', { value: '' }, 'Memuat...') 
-                        : [
-                            m('option', { value: '' }, i18n.selectProvince || 'Pilih Provinsi'),
-                            this.provinsiList.map(p => m('option', { value: p.code }, p.name))
-                        ]
+                    m('option', { value: '' }, i18n.selectProvince || 'Pilih Provinsi'),
+                    ...this.provinsiList.map(p => m('option', { value: p.code }, p.name))
                 ]),
                 m('label', { for: 'kabupaten' }, i18n.kabupatenKota || 'Kabupaten/Kota'),
                 m('select', {
@@ -186,10 +198,12 @@ export default {
                         ? m('option', { value: '' }, 'Memuat...')
                         : [
                             m('option', { value: '' }, i18n.selectKabupaten || 'Pilih Kabupaten/Kota'),
-                            this.kabupatenList.map(k => m('option', { value: k.code }, k.name))
+                            ...this.kabupatenList.map(k => m('option', { value: k.code }, k.name))
                         ]
                 ]),
-                m('button[type=submit]', { disabled: this.loading }, i18n.save || 'Simpan'),
+                m('button[type=submit]', { 
+                    disabled: this.loading || !this.selectedProvinsi || !this.selectedKabupaten 
+                }, i18n.save || 'Simpan'),
                 this.success && m('div.success', this.success),
                 this.error && m('div.error', this.error)
             ])
