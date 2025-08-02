@@ -109,7 +109,7 @@ export default {
     // Handle photo preview
     if (response.hasPhoto || response.photo || response.photoMime) {
       this.hasExistingPhoto = true;
-      this.photoPreview = `/api/submissions/photo/${response._id || this.submissionId}?t=${Date.now()}`;
+      this.photoPreview = `/api/photo/${response._id || this.submissionId}?t=${Date.now()}`;
       console.log('SubmissionForm: Set photo preview:', this.photoPreview);
     } else {
       this.hasExistingPhoto = false;
@@ -216,51 +216,31 @@ export default {
     });
   },
 
-  async submit() {
-    this.loading = true;
-    this.error = '';
-    this.success = '';
+  /**
+   * Validates the form data before submission.
+   * @returns {string|null} An error message string if validation fails, otherwise null.
+   */
+  _validate() {
+    if (!this.editMode && !this.photo) return 'Foto bukti wajib diunggah.';
+    if (this.photo && this.photoProcessing) return 'Gambar masih diproses, mohon tunggu...';
+    if (this.photo && !this.photoBase64) return 'Gambar gagal diproses. Silakan unggah ulang.';
 
-    // Validation for new submissions
-    if (!this.editMode && !this.photo) {
-      this.error = 'Foto bukti wajib diunggah.';
-      this.loading = false;
-      m.redraw();
-      return;
-    }
-
-    // Check if photo is processing
-    if (this.photo && this.photoProcessing) {
-      this.error = 'Gambar masih diproses, mohon tunggu...';
-      this.loading = false;
-      m.redraw();
-      return;
-    }
-
-    // Check if photo selected but conversion failed
-    if (this.photo && !this.photoBase64) {
-      this.error = 'Gambar gagal diproses. Silakan unggah ulang.';
-      this.loading = false;
-      m.redraw();
-      return;
-    }
-
-    // Vote validation
     const totalVotesNum = parseInt(this.totalVotes, 10) || 0;
     const calegVotesNum = parseInt(this.calegVotes, 10) || 0;
+    if (calegVotesNum > totalVotesNum) return 'Jumlah suara caleg tidak boleh melebihi total suara.';
 
-    if (calegVotesNum > totalVotesNum) {
-      this.error = 'Jumlah suara caleg tidak boleh melebihi total suara.';
-      this.loading = false;
-      m.redraw();
-      return;
-    }
+    return null; // No errors
+  },
 
-    // Build payload
+  /**
+   * Constructs the payload object for the API request.
+   * @returns {object} The submission payload.
+   */
+  _buildPayload() {
     const payload = {
       tps: this.tps,
-      totalVotes: totalVotesNum,
-      calegVotes: calegVotesNum,
+      totalVotes: parseInt(this.totalVotes, 10) || 0,
+      calegVotes: parseInt(this.calegVotes, 10) || 0,
       provinsiCode: this.provinsiCode,
       kabupatenKotaCode: this.kabupatenKotaCode,
       kecamatanCode: this.kecamatanCode,
@@ -269,72 +249,100 @@ export default {
       longitude: this.longitude
     };
 
-    // Handle photo data
     if (this.photoChanged) {
       if (this.photoBase64) {
-        // New photo uploaded
         payload.photoBase64 = `data:${this.photoMime};base64,${this.photoBase64}`;
         console.log('[SUBMIT] Including new photo in payload');
       } else if (!this.photo && this.editMode) {
-        // Photo was cleared in edit mode
         payload.removePhoto = true;
         console.log('[SUBMIT] Removing photo in edit mode');
       }
     }
-    // If photoChanged is false, don't include any photo data (keep existing)
+    return payload;
+  },
 
-    const url = this.editMode ? `/api/submissions/${this.submissionId}` : '/api/submissions';
-    const method = this.editMode ? 'PUT' : 'POST';
+  /**
+   * Parses an API error and returns a user-friendly message.
+   * @param {object} error - The error object from the m.request catch block.
+   * @returns {string} The error message to display.
+   */
+  _handleApiError(error) {
+    const responseBody = error.response || error;
+    if (responseBody && typeof responseBody === 'object' && responseBody.error) {
+      let errorMessage = responseBody.error;
+      if (responseBody.details && typeof responseBody.details === 'object') {
+        const messages = Object.values(responseBody.details).map(detail => detail.message).join(', ');
+        if (messages) errorMessage += `: ${messages}`;
+      }
+      return errorMessage;
+    }
+    return this.editMode ? 'Gagal memperbarui data' : 'Gagal mengirim data';
+  },
 
-    console.log(`Submitting to ${method} ${url}`, payload);
+  /**
+   * Handles the successful API response.
+   */
+  _handleSuccess() {
+    this.loading = false;
+    this.success = this.editMode ? 'Data berhasil diperbarui!' : 'Data berhasil dikirim!';
+
+    if (this.editMode) {
+      // In edit mode, reset photo tracking and refresh previews
+      this.photoChanged = false;
+      if (this.hasExistingPhoto || this.photoBase64) {
+        this.photoPreview = `/api/photo/${this.submissionId}?t=${Date.now()}`;
+      }
+    } else {
+      // In new submission mode, clear the form
+      this.resetForm();
+    }
+
+    // Notify parent component of success
+    if (this.onsuccess && typeof this.onsuccess === 'function') {
+      this.onsuccess();
+    }
+
+    m.redraw();
+  },
+
+  async submit() {
+    this.loading = true;
+    this.error = '';
+    this.success = '';
+
+    const validationError = this._validate();
+    if (validationError) {
+      this.error = validationError;
+      this.loading = false;
+      m.redraw();
+      return;
+    }
 
     try {
-      const response = await m.request({
-        method: method,
-        url: url,
+      // Create or update submission
+      const url = this.editMode ? '/api/submission' : '/api/submission';
+      const method = this.editMode ? 'PUT' : 'POST';
+      const payload = this._buildPayload();
+      if (this.editMode) payload.id = this.submissionId;
+
+      await m.request({
+        method,
+        url,
         body: payload,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + localStorage.getItem('token')
-        }
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.getItem('token') }
       });
 
-      this.success = this.editMode ? 'Data berhasil diperbarui!' : 'Data berhasil dikirim!';
+      // Fetch detail
+      await m.request({
+        method: 'POST',
+        url: '/api/submission_detail',
+        body: { id: this.submissionId },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.getItem('token') }
+      });
 
-      if (!this.editMode) {
-        this.resetForm();
-      } else {
-        // Reset photo change tracking after successful update
-        this.photoChanged = false;
-        // Update preview URL with new timestamp to force refresh
-        if (this.hasExistingPhoto || this.photoBase64) {
-          this.photoPreview = `/api/submissions/photo/${this.submissionId}?t=${Date.now()}`;
-        }
-      }
-
-      this.loading = false;
-
-      // Call success callback
-      if (this.onsuccess && typeof this.onsuccess === 'function') {
-        this.onsuccess();
-      }
-
-      m.redraw();
+      this._handleSuccess();
     } catch (error) {
-      const responseBody = error.response || error;
-
-      if (responseBody && typeof responseBody === 'object' && responseBody.error) {
-        let errorMessage = responseBody.error;
-
-        if (responseBody.details && typeof responseBody.details === 'object') {
-          const messages = Object.values(responseBody.details).map(detail => detail.message).join(', ');
-          if (messages) errorMessage += `: ${messages}`;
-        }
-        this.error = errorMessage;
-      } else {
-        this.error = this.editMode ? 'Gagal memperbarui data' : 'Gagal mengirim data';
-      }
-
+      this.error = this._handleApiError(error);
       this.loading = false;
       m.redraw();
     }

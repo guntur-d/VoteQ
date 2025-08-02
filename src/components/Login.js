@@ -16,7 +16,7 @@ export default {
     console.log('[FRONTEND LOGIN] Sending body:', body);
     m.request({
       method: 'POST',
-      url: '/api/auth/login',
+      url: '/api/login',
       body,
       headers: { 'Content-Type': 'application/json' }
     }).then(response => {

@@ -1,4 +1,3 @@
-
 import { i18n } from '../i18n.js';
 
 export default {
@@ -29,7 +28,7 @@ export default {
                 const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
                 m.request({
                     method: 'GET',
-                    url: '/api/admin/area-setting',
+                    url: '/api/area-setting',
                     headers: authHeader
                 }).then(setting => {
                     console.log('Fetched area setting:', setting);
@@ -40,9 +39,12 @@ export default {
                         const prov = this.provinsiList.find(p => p.code === setting.provinsi);
                         // Always fetch kabupatenList for selected provinsi
                         if (prov) {
+                            // PATCH: Use POST with body for kabupaten fetch
                             m.request({
-                                method: 'GET',
-                                url: `/api/kabupatenkota?provinsiCode=${prov.code}`
+                                method: 'POST',
+                                url: '/api/kabupatenkota',
+                                body: { provinsiCode: prov.code },
+                                headers: { 'Content-Type': 'application/json' }
                             }).then(kabupatenList => {
                                 this.kabupatenList = kabupatenList;
                                 const kab = this.kabupatenList.find(k => k.code === setting.kabupatenKota);
@@ -70,7 +72,13 @@ export default {
         this.kabupatenLoading = true;
         // Fetch kabupaten list for selected provinsi from API
         console.log('Fetching kabupaten for provinsi:', this.selectedProvinsi);
-        m.request({ method: 'GET', url: `/api/kabupatenkota?provinsiCode=${this.selectedProvinsi}` })
+        // PATCH: Use POST with body for kabupaten fetch
+        m.request({
+            method: 'POST',
+            url: '/api/kabupatenkota',
+            body: { provinsiCode: this.selectedProvinsi },
+            headers: { 'Content-Type': 'application/json' }
+        })
             .then(data => {
                 console.log('Fetched kabupaten list:', data);
                 this.kabupatenList = data;
@@ -98,7 +106,7 @@ export default {
         console.log('[AREA SETTING] Sending POST body:', postBody);
         m.request({
             method: 'POST',
-            url: '/api/admin/area-setting',
+            url: '/api/area-setting',
             body: postBody,
             headers: authHeader
         }).then(() => {

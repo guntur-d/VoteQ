@@ -1,14 +1,9 @@
 {
-  "version": 2,
-  "functions": {
-    "api/[...all].js": {
-      "maxDuration": 30
-    }
-  },
-  "routes": [
+  "rewrites": [
+ 
     {
-      "src": "/((?!api/)[^\\.]*)$",
-      "dest": "/index.html"
+      "source": "/((?!api/)[^\\.]*)",
+      "destination": "/index.html"
     }
   ]
 }

@@ -3,20 +3,26 @@ import { i18n } from '../i18n.js';
 
 export default {
   fullName: '',
+  email: '', // Add this
   phoneNumber: '',
   password: '',
   loading: false,
   error: '',
   success: '',
   register() {
+    if (!this.fullName || !this.email || !this.phoneNumber || !this.password) {
+      this.error = 'Semua field wajib diisi';
+      return;
+    }
     this.loading = true;
     this.error = '';
     this.success = '';
     m.request({
       method: 'POST',
-      url: '/api/auth/register',
+      url: '/api/register', // PATCHED: use Vercel-compatible endpoint
       body: {
         fullName: this.fullName,
+        email: this.email, // Add this
         phoneNumber: this.phoneNumber,
         password: this.password
       },
@@ -24,6 +30,7 @@ export default {
     }).then(response => {
       this.success = response.message || i18n.registerSuccess;
       this.fullName = '';
+      this.email = ''; // Add this
       this.phoneNumber = '';
       this.password = '';
       this.loading = false;
@@ -49,6 +56,14 @@ export default {
           type: 'text',
           value: this.fullName,
           oninput: e => { this.fullName = e.target.value; },
+          required: true
+        }),
+        m('label', { for: 'email' }, i18n.email), // Add this
+        m('input', {
+          id: 'email',
+          type: 'email',
+          value: this.email,
+          oninput: e => { this.email = e.target.value; },
           required: true
         }),
         m('label', { for: 'phoneNumber' }, i18n.phoneNumber),

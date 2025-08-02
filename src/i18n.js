@@ -4,6 +4,7 @@ export const i18n = {
   login: 'Masuk',
   register: 'Daftar',
   logout: 'Keluar',
+  email:'Email',
   phoneNumber: 'Nomor HP',
   password: 'Kata Sandi',
   fullName: 'Nama Lengkap',

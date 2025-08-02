@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "VoteQ - A voting report application with Fastify, MongoDB, and Mithril.js",
   "type": "module",
-  "main": "api/index.js",
+  "main": "api/[...all].js",
   "scripts": {
     "build": "esbuild src/app.js --bundle --outfile=public/js/app.js --format=esm --target=es2020 --minify",
     "build:dev": "esbuild src/app.js --bundle --outfile=public/js/app.js --format=esm --target=es2020 --sourcemap",
@@ -28,7 +28,8 @@
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.0",
     "mongoose": "^8.3.5",
-    "sharp": "^0.34.3"
+    "sharp": "^0.34.3",
+    "vercel": "^44.6.6"
   },
   "devDependencies": {
     "esbuild": "^0.19.0"

@@ -138,53 +138,67 @@ checkAdminAccess() {
   },
 
   // New method to load area data (kecamatan and desa names)
-async loadAreaData() {
-  try {
-    const areaSetting = await m.request({
-      method: 'GET',
-      url: '/api/admin/area-setting',
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
-    });
+  async loadAreaData() {
+    try {
+      const areaSetting = await m.request({
+        method: 'GET',
+        url: '/api/area-setting',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      });
 
-    if (areaSetting && areaSetting.kabupatenKota) {
-      try {
-        const [kecamatanList, desaList] = await Promise.all([
-          m.request({
-            method: 'GET',
-            url: `/api/kecamatan?kabupatenCode=${areaSetting.kabupatenKota}&provinsiCode=${areaSetting.provinsi}`
-          }),
-          m.request({
-            method: 'GET',
-            url: `/api/kelurahan_desa?kabupatenCode=${areaSetting.kabupatenKota}&provinsiCode=${areaSetting.provinsi}`
-          })
-        ]);
-        return { kecamatanList, desaList };
-      } catch (apiErr) {
-        console.warn('Failed to load kecamatan/desa:', apiErr);
-        // Return empty lists instead of failing entirely
-        return { kecamatanList: [], desaList: [] };
+      if (areaSetting && areaSetting.kabupatenKota) {
+        try {
+          // PATCH: Use POST with body for area data fetches
+          const [kecamatanList, desaList] = await Promise.all([
+            m.request({
+              method: 'POST',
+              url: '/api/kecamatan',
+              body: {
+                kabupatenCode: areaSetting.kabupatenKota,
+                provinsiCode: areaSetting.provinsi
+              },
+              headers: { 'Content-Type': 'application/json' }
+            }),
+            m.request({
+              method: 'POST',
+              url: '/api/kelurahan',
+              body: {
+                kabupatenCode: areaSetting.kabupatenKota,
+                provinsiCode: areaSetting.provinsi
+              },
+              headers: { 'Content-Type': 'application/json' }
+            })
+          ]);
+          return { kecamatanList, desaList };
+        } catch (apiErr) {
+          console.warn('Failed to load kecamatan/desa:', apiErr);
+          // Return empty lists instead of failing entirely
+          return { kecamatanList: [], desaList: [] };
+        }
       }
+    } catch (err) {
+      console.error('Error loading area setting:', err);
     }
-  } catch (err) {
-    console.error('Error loading area setting:', err);
-  }
-  return { kecamatanList: [], desaList: [] };
-},
+    return { kecamatanList: [], desaList: [] };
+  },
 
+  // PATCH: Use POST with body for unverified users fetch
   loadUnverifiedUsers() {
     return m.request({
-      method: 'GET',
-      url: '/api/admin/unverified-users',
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      method: 'POST',
+      url: '/api/admin_unusers',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
+      body: {}
     });
   },
-    
+
+  // PATCH: Use POST with body for submissions fetch
   loadSubmissions() {
-    // Fetch all submissions for admin
     return m.request({
-      method: 'GET',
-      url: '/api/admin/submissions',
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      method: 'POST',
+      url: '/api/admin_subs',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
+      body: {}
     });
   },
 
@@ -424,6 +438,8 @@ async loadAreaData() {
   },
 
   renderUnverifiedUsersSection() {
+    const unverified = this.unverifiedUsers.filter(user => user.isVerified === false);
+
     return m('section', [
       m('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' } }, [
         m('h4', { style: { margin: 0 } }, 'Pengguna Belum Terverifikasi'),
@@ -432,9 +448,9 @@ async loadAreaData() {
           style: { margin: 0, padding: '0.25rem 0.75rem' },
           onclick: () => this.refreshUsers(),
           'aria-busy': this.loading.users
-        }, this.loading.users ? '' : '🔄 Refresh')
+        }, this.loading.users ? m('div', { 'aria-busy': 'true' }, 'Memuat data ..'): '🔄 Refresh')
       ]),
-      this.unverifiedUsers.length === 0 
+      unverified.length === 0 
         ? m('p', 'Tidak ada pengguna yang perlu diverifikasi')
         : m('table', [
           m('thead', m('tr', [
@@ -443,7 +459,7 @@ async loadAreaData() {
             m('th', 'Tanggal Daftar'),
             m('th', 'Aksi')
           ])),
-          m('tbody', this.unverifiedUsers.map(user => 
+          m('tbody', unverified.map(user => 
             m('tr', [
               m('td', user.fullName),
               m('td', user.phoneNumber),
@@ -466,7 +482,7 @@ async loadAreaData() {
           style: { margin: 0, padding: '0.25rem 0.75rem' },
           onclick: () => this.refreshSubmissionsAndSummary(), 
           'aria-busy': this.loading.submissions
-        }, this.loading.submissions ? '' : '🔄 Refresh')
+        }, this.loading.submissions ? m('div', { 'aria-busy': 'true' }, 'Memuat data ..') : '🔄 Refresh'  )
       ]),
       this.allSubmissions.length === 0
         ? m('p', 'Belum ada submission')
@@ -543,18 +559,19 @@ async loadAreaData() {
   async openEditModal(submissionId) {
     this.editingSubmissionId = submissionId;
     this.editingSubmission = null; // Reset previous submission data
-        
+
     // Ensure area data is loaded
     if (this.areaData.kecamatanList.length === 0 || this.areaData.desaList.length === 0) {
       await this.loadAreaData();
     }
-        
+
     // Fetch the submission data
     try {
       const submission = await m.request({
-        method: 'GET',
-        url: `/api/submissions/${submissionId}`,
-        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+        method: 'POST',
+        url: '/api/submission_detail',
+        headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
+        body: { id: submissionId }
       });
       console.log('AdminPanel: Fetched submission data:', submission);
       console.log('AdminPanel: Available areaData:', this.areaData);
@@ -563,7 +580,7 @@ async loadAreaData() {
       console.error('Error fetching submission data:', error);
       this.error = 'Failed to load submission data for editing';
     }
-        
+
     this.isEditModalOpen = true;
     m.redraw();
   },
@@ -604,7 +621,7 @@ async loadAreaData() {
   // Add a method to handle photo viewing
   viewPhoto(submissionId) {
     // Open photo in a new window/tab
-    window.open(`/api/submissions/photo/${submissionId}`, '_blank');
+    window.open(`/api/photo/${submissionId}`, '_blank');
   },
 
   // --- Details Modal Methods ---
@@ -728,7 +745,7 @@ async loadAreaData() {
           style: { margin: 0, padding: '0.25rem 0.75rem' },
           onclick: () => this.refreshSubmissionsAndSummary(),
           'aria-busy': this.loading.summary
-        }, this.loading.summary ? '' : '🔄 Refresh')
+        }, this.loading.summary ? m('div', { 'aria-busy': 'true' }, 'Memuat data ..') : '🔄 Refresh'),
       ]),
       m('div.grid', [
         m('div', [
@@ -801,8 +818,9 @@ async loadAreaData() {
   verifyUser(userId) {
     return m.request({
       method: 'POST',
-      url: `/api/admin/verify-user/${userId}`,
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      url: '/api/verify_user',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
+      body: { id: userId }
     }).then(() => {
       // Remove user from unverified list
       this.unverifiedUsers = this.unverifiedUsers.filter(user => user._id !== userId);
@@ -813,85 +831,70 @@ async loadAreaData() {
     });
   },
 
-  approveSubmission(submissionId) {
-    // Set loading state for this specific submission
-    if (!this.submissionLoadingStates[submissionId]) {
-      this.submissionLoadingStates[submissionId] = {};
-    }
-    this.submissionLoadingStates[submissionId].approving = true;
-    m.redraw();
-
+  unverifyVolunteer(userId) {
     return m.request({
       method: 'POST',
-      url: `/api/admin/approve/${submissionId}`,
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+      url: '/api/unverify_volunteer',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
+      body: { id: userId }
     }).then(() => {
-      // Update submission status in local array
-      const submission = this.allSubmissions.find(s => s._id === submissionId);
-      if (submission) {
-        submission.status = 'approved';
-      }
-      // Recalculate summaries to reflect the change
-      this.calculateVoteSummary(this.allSubmissions);
-    }).catch(err => {
-      console.error('Error approving submission:', err);
-      this.error = 'Failed to approve submission';
-    }).finally(() => {
-      // Clear loading state
-      if (this.submissionLoadingStates[submissionId]) {
-        this.submissionLoadingStates[submissionId].approving = false;
-      }
+      // Optionally update UI, e.g. remove from verified list
+      this.refreshUsers && this.refreshUsers();
       m.redraw();
+    }).catch(err => {
+      console.error('Error unverifying volunteer:', err);
+      this.error = 'Failed to unverify volunteer';
+    });
+  },
+
+  approveSubmission(submissionId) {
+    return m.request({
+      method: 'POST',
+      url: '/api/approve',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
+      body: { id: submissionId }
     });
   },
 
   flagSubmission(submissionId) {
-    // Set loading state for this specific submission
-    if (!this.submissionLoadingStates[submissionId]) {
-      this.submissionLoadingStates[submissionId] = {};
-    }
-    this.submissionLoadingStates[submissionId].flagging = true;
-    m.redraw();
-
     return m.request({
       method: 'POST',
-      url: `/api/admin/flag/${submissionId}`,
-      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
-    }).then(() => {
-      // Update submission status in local array
-      const submission = this.allSubmissions.find(s => s._id === submissionId);
-      if (submission) {
-        submission.status = 'flagged';
-      }
-      // Recalculate summaries to reflect the change
-      this.calculateVoteSummary(this.allSubmissions);
-    }).catch(err => {
-      console.error('Error flagging submission:', err);
-      this.error = 'Failed to flag submission';
-    }).finally(() => {
-      // Clear loading state
-      if (this.submissionLoadingStates[submissionId]) {
-        this.submissionLoadingStates[submissionId].flagging = false;
-      }
-      m.redraw();
+      url: '/api/flag',
+      headers: { Authorization: 'Bearer ' + localStorage.getItem('token') },
+      body: { id: submissionId }
     });
   },
 
   renderNavigation() {
     return m('nav', [
-      m('ul', [
-        m('li', m('button', {
-          class: this.currentView === 'dashboard' ? 'active' : '',
-          onclick: () => this.currentView = 'dashboard'
-        }, 'Dashboard')),
-        m('li', m('button', {
-          class: this.currentView === 'area-setting' ? 'active' : '',
-          onclick: () => this.currentView = 'area-setting'
-        }, 'Pengaturan Area')),
-        m('li', m('button', {
-          class: this.currentView === 'caleg-setting' ? 'active' : '',
-          onclick: () => this.currentView = 'caleg-setting'
-        }, 'Pengaturan Caleg'))
+      m('ul', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } }, [
+        m('div', { style: { display: 'flex', gap: '0.5rem' } }, [
+          m('li', m('button', {
+            class: this.currentView === 'dashboard' ? 'active' : '',
+            onclick: () => this.currentView = 'dashboard'
+          }, 'Dashboard')),
+          m('li', m('button', {
+            class: this.currentView === 'area-setting' ? 'active' : '',
+            onclick: () => this.currentView = 'area-setting'
+          }, 'Pengaturan Area')),
+          m('li', m('button', {
+            class: this.currentView === 'caleg-setting' ? 'active' : '',
+            onclick: () => this.currentView = 'caleg-setting'
+          }, 'Pengaturan Caleg')),
+          m('li', m('button', {
+            onclick: () => m.route.set('/dashboard')
+          }, 'Menu Relawan'))
+        ]),
+        m('li', 
+          m('button', {
+            style: { background: '#dc2626', color: '#fff', border: 'none', marginLeft: '1rem', padding: '0.5rem 1.2rem', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' },
+            onclick: () => {
+              localStorage.removeItem('token');
+              localStorage.removeItem('user');
+              m.route.set('/app/login');
+            }
+          }, 'Logout')
+        )
       ])
     ]);
   },
